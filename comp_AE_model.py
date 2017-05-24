@@ -59,13 +59,9 @@ class AE(object):
                                   weights_initializer=conv_init_params, biases_initializer=bias_init_params,
                                   normalizer_fn=slim.batch_norm, normalizer_params=bn_params,
                                   scope='conv1')
-            # 6x6x512 -> 3x3x512
-            _e2 = slim.conv2d(_e1, 300, [3, 3], stride=2, activation_fn=lrelu,
-                                  weights_initializer=conv_init_params, biases_initializer=bias_init_params,
-                                  normalizer_fn=slim.batch_norm, normalizer_params=bn_params,
-                                  scope='conv2')
+
             # 3x3x512 -> 1x1x1024
-            _embed = slim.fully_connected(tf.reshape(_e2, [-1, 3*3*300]), 512, activation_fn=lrelu,
+            _embed = slim.fully_connected(tf.reshape(_e1, [-1, 3*3*300]), 512, activation_fn=lrelu,
                                   weights_initializer=fully_init_params, biases_initializer=bias_init_params,
                                   normalizer_fn=slim.batch_norm, normalizer_params=bn_params, scope='fconv')
 
@@ -110,9 +106,7 @@ class AE(object):
             with tf.variable_scope("deconv1"):
                 _d1 = self.deconv(_bn_d0, [self.batch_size, 6, 6, fc_d/4], [3, 3, fc_d/4, fc_d/2], [fc_d/4], bn_params)
             with tf.variable_scope("deconv2"):
-                _d2 = self.deconv(_d1, [self.batch_size, 11, 11, fc_d/8], [3, 3, fc_d/8, fc_d/4], [fc_d/8], bn_params)
-            with tf.variable_scope("deconv3"):
-                _out = self.deconv(_d2, [self.batch_size, 21, 21, 1], [3, 3, 1, fc_d/8], [1], bn_params, True)
+                _out = self.deconv(_d1, [self.batch_size, 21, 21, 1], [3, 3, 1, fc_d/4], [1], bn_params, True)
 
         return _out
 
