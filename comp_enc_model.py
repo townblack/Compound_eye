@@ -50,21 +50,16 @@ class AE(object):
             if reuse:
                 scope.reuse_variables()
             # 21x21x300 -> 11x11x512
-            _e0 = slim.conv2d(_im, 300, [3, 3], stride=1, activation_fn=tf.nn.relu,
+            _e0 = slim.conv2d(_im, 300, [3, 3], stride=1, activation_fn=lrelu,
                                   weights_initializer=conv_init_params, biases_initializer=bias_init_params,
                                   normalizer_fn=slim.batch_norm, normalizer_params=bn_params,
                                   scope='conv0')
             # 11x11x512 -> 6x6x512
-            _e1 = slim.conv2d(_e0, 300, [3, 3], stride=1, activation_fn=tf.nn.relu,
+            _embed = slim.conv2d(_e0, 1, [3, 3], stride=1, activation_fn=tf.nn.sigmoid,
                                   weights_initializer=conv_init_params, biases_initializer=bias_init_params,
                                   normalizer_fn=slim.batch_norm, normalizer_params=bn_params,
                                   scope='conv1')
-            # 6x6x512 -> 3x3x512
-            _embed = slim.conv2d(_e1, 1, [3, 3], stride=1, activation_fn=tf.nn.sigmoid,
-                                  weights_initializer=conv_init_params, biases_initializer=bias_init_params,
-                                  normalizer_fn=slim.batch_norm, normalizer_params=bn_params,
-                                  scope='conv2')
-            # 3x3x512 -> 1x1x1024
+
 
         return _embed
 
