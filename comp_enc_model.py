@@ -201,7 +201,7 @@ class AE(object):
                 b.matshow(np.reshape(c_out, (21, 21)), cmap='gray')
 
             plt.title("TEST")
-            test_dir = os.path.join(save_dir, "output_figure_recent/test")
+            test_dir = os.path.join(save_dir, "output_figure/test")
             test_fig = "test_test%04d" % (_epoch + 1)
             if not os.path.exists(test_dir):
                 os.makedirs(test_dir)
@@ -217,7 +217,7 @@ class AE(object):
                 b.matshow(np.reshape(c_out, (21, 21)), cmap='gray')
 
             plt.title("TRAIN")
-            test_dir = os.path.join(save_dir, "output_figure_recent/train")
+            test_dir = os.path.join(save_dir, "output_figure/train")
             test_fig = "train%04d" % (_epoch + 1)
             if not os.path.exists(test_dir):
                 os.makedirs(test_dir)
@@ -225,7 +225,7 @@ class AE(object):
 
     def save(self, checkpoint_dir, step, config):
         model_name = "comp_AE.model"
-        model_dir = "%s_recent" % (config.dataset_name)
+        model_dir = "%s" % (config.dataset_name)
         checkpoint_dir = os.path.join(checkpoint_dir, model_dir)
 
         if not os.path.exists(checkpoint_dir):

@@ -61,7 +61,7 @@ class AE(object):
                                   scope='conv1')
 
             # 3x3x512 -> 1x1x1024
-            _embed = slim.fully_connected(tf.reshape(_e1, [-1, 3*3*300]), 512, activation_fn=lrelu,
+            _embed = slim.fully_connected(tf.reshape(_e1, [-1, 6*6*300]), 512, activation_fn=lrelu,
                                   weights_initializer=fully_init_params, biases_initializer=bias_init_params,
                                   normalizer_fn=slim.batch_norm, normalizer_params=bn_params, scope='fconv')
 
@@ -95,16 +95,16 @@ class AE(object):
             if reuse:
                 scope.reuse_variables()
             fc_d = 512
-            _embed = slim.fully_connected(_embed, 3 * 3 * fc_d/2, activation_fn=None,
+            _embed = slim.fully_connected(_embed, 6 * 6 * fc_d/2, activation_fn=None,
                                          weights_initializer=fully_init_params, biases_initializer=bias_init_params,
                                          scope='deconv0')
-            _d0 = tf.reshape(_embed, [self.batch_size, 3, 3, fc_d/2])
+            _d0 = tf.reshape(_embed, [self.batch_size, 6, 6, fc_d/2])
             _bn_d0 = slim.batch_norm(_d0, decay=bn_params['decay'], epsilon=bn_params['epsilon'],
                                   param_initializers=bn_params['param_initializers'],
                                   updates_collections=bn_params['updates_collections'],
                                      is_training=bn_params['is_training'])
             with tf.variable_scope("deconv1"):
-                _d1 = self.deconv(_bn_d0, [self.batch_size, 6, 6, fc_d/4], [3, 3, fc_d/4, fc_d/2], [fc_d/4], bn_params)
+                _d1 = self.deconv(_bn_d0, [self.batch_size, 11, 11, fc_d/4], [3, 3, fc_d/4, fc_d/2], [fc_d/4], bn_params)
             with tf.variable_scope("deconv2"):
                 _out = self.deconv(_d1, [self.batch_size, 21, 21, 1], [3, 3, 1, fc_d/4], [1], bn_params, True)
 
@@ -233,7 +233,7 @@ class AE(object):
 
 
         # Test image, Training image plotting
-        if np.mod(_epoch,50) == 0:
+        if np.mod(_epoch,20) == 0:
             # plt.figure(1)
             #
             # for dtest in range(5):
@@ -285,7 +285,7 @@ class AE(object):
                 b.matshow(np.reshape(c_out, (21, 21)), cmap='gray')
 
             plt.title("TEST")
-            test_dir = os.path.join(save_dir, "output_figure_recent/test")
+            test_dir = os.path.join(save_dir, "output_figure/test")
             test_fig = "test_test%04d" % (_epoch + 1)
             if not os.path.exists(test_dir):
                 os.makedirs(test_dir)
@@ -301,7 +301,7 @@ class AE(object):
                 b.matshow(np.reshape(c_out, (21, 21)), cmap='gray')
 
             plt.title("TRAIN")
-            test_dir = os.path.join(save_dir, "output_figure_recent/train")
+            test_dir = os.path.join(save_dir, "output_figure/train")
             test_fig = "train%04d" % (_epoch + 1)
             if not os.path.exists(test_dir):
                 os.makedirs(test_dir)
@@ -309,7 +309,7 @@ class AE(object):
 
     def save(self, checkpoint_dir, step, config):
         model_name = "comp_AE.model"
-        model_dir = "%s_recent" % (config.dataset_name)
+        model_dir = "%s" % (config.dataset_name)
         checkpoint_dir = os.path.join(checkpoint_dir, model_dir)
 
         if not os.path.exists(checkpoint_dir):
