@@ -27,8 +27,8 @@ class AE(object):
         self.batch_size = tf.shape(self.input)[0]
         self.is_training = tf.placeholder(tf.bool)
 
-        self.embed = self.encoder(self.input, self.is_training)
-        self.gen = self.generator(self.embed, self.is_training)
+        self.gen = self.encoder(self.input, self.is_training)
+
 
         # L1 Loss
         self.loss = tf.reduce_mean(tf.abs(self.gt - self.gen))
@@ -66,56 +66,16 @@ class AE(object):
                               scope='conv2')
 
             # 3x3x512 -> 1x1x1024
-            _embed = slim.fully_connected(tf.reshape(_e2, [-1, 3*3*300]), 512, activation_fn=lrelu,
+            _embed = slim.fully_connected(tf.reshape(_e2, [-1, 3*3*300]), 441, activation_fn=tf.nn.sigmoid,
                                   weights_initializer=fully_init_params, biases_initializer=bias_init_params,
                                   normalizer_fn=slim.batch_norm, normalizer_params=bn_params, scope='fconv')
+
+            _embed = tf.reshape(_embed, (-1 ,21, 21, 1))
 
         return _embed
 
 
-    def deconv(self, _input, _output_shape, _weight_shape, _bias_shape, _bn_params, _last=False):
-        _weights = tf.get_variable("weights", _weight_shape, initializer=tf.random_normal_initializer())
-        _biases = tf.get_variable("biases", _bias_shape, initializer=tf.constant_initializer(0.0))
-        _deconv = tf.nn.conv2d_transpose(_input, _weights, _output_shape,
-                                      strides=[1, 2, 2, 1], padding='SAME')
-        _deconv = tf.nn.bias_add(_deconv, _biases)
-        _bn = slim.batch_norm(_deconv, decay=_bn_params['decay'], epsilon=_bn_params['epsilon'],
-                              param_initializers=_bn_params['param_initializers'],
-                              updates_collections=_bn_params['updates_collections'],
-                              is_training=_bn_params['is_training'])
-        if ~(_last):
-            return tf.nn.relu(_bn)
-        else :
-            return tf.nn.sigmoid(_bn)
 
-
-    def generator(self, _embed, is_training=True, reuse=False):
-        fully_init_params = tf.random_normal_initializer(stddev=0.02)
-        bias_init_params = tf.constant_initializer(0.0)
-        bn_init_params = {'beta': tf.constant_initializer(0.),
-                          'gamma': tf.random_normal_initializer(1., 0.02)}
-        bn_params = {'is_training': is_training, 'decay': 0.9, 'epsilon': 1e-5,
-                     'param_initializers': bn_init_params, 'updates_collections': None}
-        with tf.variable_scope("generater") as scope:
-            if reuse:
-                scope.reuse_variables()
-            fc_d = 512
-            _embed = slim.fully_connected(_embed, 3 * 3 * fc_d/2, activation_fn=None,
-                                         weights_initializer=fully_init_params, biases_initializer=bias_init_params,
-                                         scope='deconv0')
-            _d0 = tf.reshape(_embed, [self.batch_size, 3, 3, fc_d/2])
-            _bn_d0 = slim.batch_norm(_d0, decay=bn_params['decay'], epsilon=bn_params['epsilon'],
-                                  param_initializers=bn_params['param_initializers'],
-                                  updates_collections=bn_params['updates_collections'],
-                                     is_training=bn_params['is_training'])
-            with tf.variable_scope("deconv1"):
-                _d1 = self.deconv(_bn_d0, [self.batch_size, 6, 6, fc_d/4], [3, 3, fc_d/4, fc_d/2], [fc_d/4], bn_params)
-            with tf.variable_scope("deconv2"):
-                _d2 = self.deconv(_d1, [self.batch_size, 11, 11, fc_d/8], [3, 3, fc_d/8, fc_d/4], [fc_d/8], bn_params)
-            with tf.variable_scope("deconv3"):
-                _out = self.deconv(_d2, [self.batch_size, 21, 21, 1], [3, 3, 1, fc_d/8], [1], bn_params, True)
-
-        return _out
 
 
     def train(self, config):
@@ -140,7 +100,7 @@ class AE(object):
         trainlabel = np.concatenate((trainlabel, testlabel[:800]),axis=0)
         testimg = testimg[800:]
         testlabel = testlabel[800:]
-        didx = np.random.randint(64, size=5)
+        didx = np.random.randint(19, 20, 21, 22, 23)
 
         optim = tf.train.AdamOptimizer(config.learning_rate, beta1=config.beta1).minimize(self.loss, var_list=self.vars)
 
@@ -152,39 +112,39 @@ class AE(object):
 
         counter = 1
 
-        load_dir = config.checkpoint_dir + "/PASCAL_VOC_2012"
-        if self.load(load_dir, config=config):
+        load_dir = "output_enc/recent"
+        if self.load(config.checkpoint_dir, config=config):
             print(" [*] Load SUCCESS")
         else:
             print(" [!] Load failed...")
 
 
         for epoch in range(config.epoch):
-            np.random.seed(epoch)
-            np.random.shuffle(trainimg)
-            np.random.seed(epoch)
-            np.random.shuffle(trainlabel)
-
-            batch_idxs = len(trainimg) // config.batch_size
-
-            for idx in range(0, batch_idxs):
-                batch_files = trainimg[range(idx * config.batch_size, (idx + 1) * config.batch_size)]
-                batch_gt = trainlabel[range(idx * config.batch_size, (idx + 1) * config.batch_size)]
-                random_flip = np.random.random_sample()
-                if random_flip > 0.5:
-                    for batch in range(config.batch_size):
-                        batch_files[batch, :, : ,:] = np.fliplr(batch_files[batch, :, : ,:])
-                        batch_gt[batch, :, :, :] = np.fliplr(batch_gt[batch, :, :, :])
-
-                    # batch_files = np.fliplr(batch_files)
-                    # batch_gt = np.fliplr(batch_gt)
-
-                # Update network
-                _, summary_str = self.sess.run([optim, self.sum], feed_dict={self.input: batch_files, self.gt: batch_gt, self.is_training: True})
-                self.writer.add_summary(summary_str, counter)
-
-            if np.mod(epoch, 200) == 1:
-                self.save(config.checkpoint_dir, epoch, config)
+            # np.random.seed(epoch)
+            # np.random.shuffle(trainimg)
+            # np.random.seed(epoch)
+            # np.random.shuffle(trainlabel)
+            #
+            # batch_idxs = len(trainimg) // config.batch_size
+            #
+            # for idx in range(0, batch_idxs):
+            #     batch_files = trainimg[range(idx * config.batch_size, (idx + 1) * config.batch_size)]
+            #     batch_gt = trainlabel[range(idx * config.batch_size, (idx + 1) * config.batch_size)]
+            #     random_flip = np.random.random_sample()
+            #     if random_flip > 0.5:
+            #         for batch in range(config.batch_size):
+            #             batch_files[batch, :, : ,:] = np.fliplr(batch_files[batch, :, : ,:])
+            #             batch_gt[batch, :, :, :] = np.fliplr(batch_gt[batch, :, :, :])
+            #
+            #         # batch_files = np.fliplr(batch_files)
+            #         # batch_gt = np.fliplr(batch_gt)
+            #
+            #     # Update network
+            #     _, summary_str = self.sess.run([optim, self.sum], feed_dict={self.input: batch_files, self.gt: batch_gt, self.is_training: True})
+            #     self.writer.add_summary(summary_str, counter)
+            #
+            # if np.mod(epoch, 200) == 1:
+            #     self.save(config.checkpoint_dir, epoch, config)
 
             # if np.mod(epoch, 50) == 0:
             self.display(epoch, config.epoch, ds_trainimg, ds_trainlabel, testimg, testlabel, didx, config.checkpoint_dir)
@@ -240,49 +200,9 @@ class AE(object):
 
 
         # Test image, Training image plotting
-        if np.mod(_epoch,20) == 0:
-            # plt.figure(1)
-            #
-            # for dtest in range(5):
-            #     # d_embed = self.encoder(self.input, is_training=False, reuse=True)
-            #     # d_gen = self.generator(d_embed, is_training=False, reuse=True)
-            #     c_out, bb= self.sess.run([self.gen,self.embed],
-            #                               feed_dict={self.input:np.reshape(_test_xs[_didx[dtest]], (-1, 21, 21, 300)), self.is_training: False})
-            #                      # feed_dict={self.input: np.reshape(_testimg[_didx[dtest], :, :, :], (-1, 21, 21, 300))})
-            #     a = plt.subplot(2, 5, dtest + 1)
-            #     a.matshow(np.reshape(_testlabel[_didx[dtest], :, :, :], (21, 21)), cmap='gray')
-            #     b = plt.subplot(2, 5, dtest + 5 + 1)
-            #     b.matshow(np.reshape(c_out, (21, 21)), cmap='gray')
-            #
-            # plt.title("TEST")
-            # test_dir = os.path.join(save_dir, "output_figure_recent/test")
-            # test_fig = "test_%04d" %(_epoch+1)
-            # if not os.path.exists(test_dir):
-            #     os.makedirs(test_dir)
-            # plt.figure(1).savefig(os.path.join(test_dir, test_fig))
-            # # plt.figure(1).savefig(os.getcwd() + '/data/output_figure/test/test_%04d' % (_epoch + 1))
-            #
-            #
-            # plt.figure(2)
-            # for dtrain in range(5):
-            #     # d_embed = self.encoder(self.input, is_training=False, reuse=True)
-            #     # d_gen = self.generator(d_embed, is_training=False, reuse=True)
-            #     c_out = self.sess.run(self.gen,
-            #                           feed_dict={self.input:np.reshape(_train_xs[_didx[dtrain]], (-1, 21, 21, 300)), self.is_training: False})
-            #                    # feed_dict={self.input: np.reshape(_trainimg[_didx[dtrain], :, :, :], (-1, 21, 21, 300))})
-            #     a = plt.subplot(2, 5, dtrain + 1)
-            #     a.matshow(np.reshape(_trainlabel[_didx[dtrain], :, :, :], (21, 21)), cmap='gray')
-            #     b = plt.subplot(2, 5, dtrain + 5 + 1)
-            #     b.matshow(np.reshape(c_out, (21, 21)), cmap='gray')
-            #
-            # plt.title("TRAIN")
-            # train_dir = os.path.join(save_dir, "output_figure_recent/train")
-            # train_fig = "train_train%04d" % (_epoch + 1)
-            # if not os.path.exists(train_dir):
-            #     os.makedirs(train_dir)
-            # plt.figure(2).savefig(os.path.join(train_dir, train_fig))
+        if np.mod(_epoch,1) == 0:
 
-            plt.figure(3)
+            plt.figure(1)
 
             for dtest in range(5):
                 c_out = test_img_gen[_didx[dtest]]
@@ -296,9 +216,9 @@ class AE(object):
             test_fig = "test_test%04d" % (_epoch + 1)
             if not os.path.exists(test_dir):
                 os.makedirs(test_dir)
-            plt.figure(3).savefig(os.path.join(test_dir, test_fig))
+            plt.figure(1).savefig(os.path.join(test_dir, test_fig))
 
-            plt.figure(4)
+            plt.figure(2)
 
             for dtest in range(5):
                 c_out = train_img_gen[_didx[dtest]]
@@ -312,7 +232,7 @@ class AE(object):
             test_fig = "train%04d" % (_epoch + 1)
             if not os.path.exists(test_dir):
                 os.makedirs(test_dir)
-            plt.figure(4).savefig(os.path.join(test_dir, test_fig))
+            plt.figure(2).savefig(os.path.join(test_dir, test_fig))
 
     def save(self, checkpoint_dir, step, config):
         model_name = "comp_AE.model"
@@ -329,7 +249,7 @@ class AE(object):
     def load(self, checkpoint_dir, config):
         print(" [*] Reading checkpoints...")
 
-        model_dir = "%s_%s" % (config.dataset_name, config.batch_size)
+        model_dir = "%s" % (config.dataset_name, config.batch_size)
         checkpoint_dir = os.path.join(checkpoint_dir, model_dir)
 
         ckpt = tf.train.get_checkpoint_state(checkpoint_dir)

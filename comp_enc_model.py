@@ -50,16 +50,27 @@ class AE(object):
             if reuse:
                 scope.reuse_variables()
             # 21x21x300 -> 11x11x512
-            _e0 = slim.conv2d(_im, 300, [3, 3], stride=1, activation_fn=lrelu,
+            _e0 = slim.conv2d(_im, 300, [3, 3], stride=2, activation_fn=lrelu,
                                   weights_initializer=conv_init_params, biases_initializer=bias_init_params,
                                   normalizer_fn=slim.batch_norm, normalizer_params=bn_params,
                                   scope='conv0')
             # 11x11x512 -> 6x6x512
-            _embed = slim.conv2d(_e0, 1, [3, 3], stride=1, activation_fn=tf.nn.sigmoid,
+            _e1 = slim.conv2d(_e0, 300, [3, 3], stride=2, activation_fn=lrelu,
                                   weights_initializer=conv_init_params, biases_initializer=bias_init_params,
                                   normalizer_fn=slim.batch_norm, normalizer_params=bn_params,
                                   scope='conv1')
 
+            _e2 = slim.conv2d(_e1, 300, [3, 3], stride=2, activation_fn=lrelu,
+                              weights_initializer=conv_init_params, biases_initializer=bias_init_params,
+                              normalizer_fn=slim.batch_norm, normalizer_params=bn_params,
+                              scope='conv2')
+
+            # 3x3x512 -> 1x1x1024
+            _embed = slim.fully_connected(tf.reshape(_e2, [-1, 3*3*300]), 441, activation_fn=tf.nn.sigmoid,
+                                  weights_initializer=fully_init_params, biases_initializer=bias_init_params,
+                                  normalizer_fn=slim.batch_norm, normalizer_params=bn_params, scope='fconv')
+
+            _embed = tf.reshape(_embed, (-1 ,21, 21, 1))
 
         return _embed
 
@@ -89,8 +100,8 @@ class AE(object):
         trainlabel = np.concatenate((trainlabel, testlabel[:800]),axis=0)
         testimg = testimg[800:]
         testlabel = testlabel[800:]
-        didx = np.random.randint(64, size=5)
-
+        # didx = np.random.randint(64, size=5)
+        didx= [19, 20, 21, 22, 23]
         optim = tf.train.AdamOptimizer(config.learning_rate, beta1=config.beta1).minimize(self.loss, var_list=self.vars)
 
         init = tf.global_variables_initializer()
@@ -166,7 +177,7 @@ class AE(object):
         _test_total = np.shape(_test_xs)[0]
         # test_acc_embed = self.encoder(self.input, is_training=False, reuse=True)
         # test_acc_gen = self.generator(test_acc_embed, is_training=False, reuse=True)
-        test_img_gen, test_loss, aa = self.sess.run([self.gen, self.loss, self.embed], feed_dict={self.input: _test_xs, self.gt: _test_ys, self.is_training: False})
+        test_img_gen, test_loss= self.sess.run([self.gen, self.loss], feed_dict={self.input: _test_xs, self.gt: _test_ys, self.is_training: False})
                                 # feed_dict={self.input: _test_xs})
         test_score = 0
         for idx_acc_test in xrange(_test_total):

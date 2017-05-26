@@ -2,7 +2,7 @@ import os
 import scipy.misc
 import numpy as np
 
-from comp_AE_model import AE
+from comp_enc_model import AE
 # from utils import pp
 
 import tensorflow as tf

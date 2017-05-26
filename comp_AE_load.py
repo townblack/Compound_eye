@@ -140,8 +140,8 @@ class AE(object):
         trainlabel = np.concatenate((trainlabel, testlabel[:800]),axis=0)
         testimg = testimg[800:]
         testlabel = testlabel[800:]
-        didx = np.random.randint(64, size=5)
-
+        # didx = np.random.randint(64, size=5)
+        didx = [19, 20, 21, 22, 23]
         optim = tf.train.AdamOptimizer(config.learning_rate, beta1=config.beta1).minimize(self.loss, var_list=self.vars)
 
         init = tf.global_variables_initializer()
@@ -152,7 +152,7 @@ class AE(object):
 
         counter = 1
 
-        load_dir = config.checkpoint_dir + "/PASCAL_VOC_2012"
+        load_dir = "output/recent"
         if self.load(load_dir, config=config):
             print(" [*] Load SUCCESS")
         else:
@@ -160,31 +160,31 @@ class AE(object):
 
 
         for epoch in range(config.epoch):
-            np.random.seed(epoch)
-            np.random.shuffle(trainimg)
-            np.random.seed(epoch)
-            np.random.shuffle(trainlabel)
-
-            batch_idxs = len(trainimg) // config.batch_size
-
-            for idx in range(0, batch_idxs):
-                batch_files = trainimg[range(idx * config.batch_size, (idx + 1) * config.batch_size)]
-                batch_gt = trainlabel[range(idx * config.batch_size, (idx + 1) * config.batch_size)]
-                random_flip = np.random.random_sample()
-                if random_flip > 0.5:
-                    for batch in range(config.batch_size):
-                        batch_files[batch, :, : ,:] = np.fliplr(batch_files[batch, :, : ,:])
-                        batch_gt[batch, :, :, :] = np.fliplr(batch_gt[batch, :, :, :])
-
-                    # batch_files = np.fliplr(batch_files)
-                    # batch_gt = np.fliplr(batch_gt)
-
-                # Update network
-                _, summary_str = self.sess.run([optim, self.sum], feed_dict={self.input: batch_files, self.gt: batch_gt, self.is_training: True})
-                self.writer.add_summary(summary_str, counter)
-
-            if np.mod(epoch, 200) == 1:
-                self.save(config.checkpoint_dir, epoch, config)
+            # np.random.seed(epoch)
+            # np.random.shuffle(trainimg)
+            # np.random.seed(epoch)
+            # np.random.shuffle(trainlabel)
+            #
+            # batch_idxs = len(trainimg) // config.batch_size
+            #
+            # for idx in range(0, batch_idxs):
+            #     batch_files = trainimg[range(idx * config.batch_size, (idx + 1) * config.batch_size)]
+            #     batch_gt = trainlabel[range(idx * config.batch_size, (idx + 1) * config.batch_size)]
+            #     random_flip = np.random.random_sample()
+            #     if random_flip > 0.5:
+            #         for batch in range(config.batch_size):
+            #             batch_files[batch, :, : ,:] = np.fliplr(batch_files[batch, :, : ,:])
+            #             batch_gt[batch, :, :, :] = np.fliplr(batch_gt[batch, :, :, :])
+            #
+            #         # batch_files = np.fliplr(batch_files)
+            #         # batch_gt = np.fliplr(batch_gt)
+            #
+            #     # Update network
+            #     _, summary_str = self.sess.run([optim, self.sum], feed_dict={self.input: batch_files, self.gt: batch_gt, self.is_training: True})
+            #     self.writer.add_summary(summary_str, counter)
+            #
+            # if np.mod(epoch, 200) == 1:
+            #     self.save(config.checkpoint_dir, epoch, config)
 
             # if np.mod(epoch, 50) == 0:
             self.display(epoch, config.epoch, ds_trainimg, ds_trainlabel, testimg, testlabel, didx, config.checkpoint_dir)
@@ -240,7 +240,7 @@ class AE(object):
 
 
         # Test image, Training image plotting
-        if np.mod(_epoch,20) == 0:
+        if np.mod(_epoch,1) == 0:
             # plt.figure(1)
             #
             # for dtest in range(5):
@@ -300,11 +300,11 @@ class AE(object):
 
             plt.figure(4)
 
-            for dtest in range(5):
-                c_out = train_img_gen[_didx[dtest]]
-                a = plt.subplot(2, 5, dtest + 1)
-                a.matshow(np.reshape(_train_ys[_didx[dtest], :, :, :], (21, 21)), cmap='gray')
-                b = plt.subplot(2, 5, dtest + 5 + 1)
+            for dtrain in range(5):
+                c_out = train_img_gen[_didx[dtrain]]
+                a = plt.subplot(2, 5, dtrain + 1)
+                a.matshow(np.reshape(_train_ys[_didx[dtrain], :, :, :], (21, 21)), cmap='gray')
+                b = plt.subplot(2, 5, dtrain + 5 + 1)
                 b.matshow(np.reshape(c_out, (21, 21)), cmap='gray')
 
             plt.title("TRAIN")
@@ -329,7 +329,7 @@ class AE(object):
     def load(self, checkpoint_dir, config):
         print(" [*] Reading checkpoints...")
 
-        model_dir = "%s_%s" % (config.dataset_name, config.batch_size)
+        model_dir = "%s" % (config.dataset_name)
         checkpoint_dir = os.path.join(checkpoint_dir, model_dir)
 
         ckpt = tf.train.get_checkpoint_state(checkpoint_dir)
