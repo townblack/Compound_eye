@@ -2,7 +2,7 @@ import os
 import scipy.misc
 import numpy as np
 
-from comp_AE_load import AE
+from comp_AE_model import AE
 # from utils import pp
 
 import tensorflow as tf
@@ -33,7 +33,7 @@ with tf.device('/gpu:1'):
         aconfig = tf.ConfigProto()
         aconfig.gpu_options.allow_growth = True
         aconfig.allow_soft_placement = True
-        # aconfig.gpu_options.per_process_gpu_memory_fraction = 0.5
+        aconfig.gpu_options.per_process_gpu_memory_fraction = 0.5
 
         with tf.Session(config=aconfig) as sess:
             ae = AE(sess)

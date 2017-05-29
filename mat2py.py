@@ -5,9 +5,9 @@ import h5py
 
 # Load Data from .mat files
 cwd = os.getcwd()
-compoundData = h5py.File(cwd+"/PASCAL_VOC_2012/compoundData_train_color.mat")
+compoundData = h5py.File(cwd+"/PASCAL_VOC_2012/compoundData_test.mat")
 compoundData.keys()
-compoundData_seg = h5py.File(cwd+"/PASCAL_VOC_2012/compoundData_seg_train_flip.mat")
+compoundData_seg = h5py.File(cwd+"/PASCAL_VOC_2012/compoundData_seg_test.mat")
 compoundData_seg.keys()
 
 # compoundData = sio.loadmat(cwd+"/PASCAL_VOC_2012/compoundData_train_color.mat")
@@ -29,8 +29,12 @@ compoundData_seg_mean = np.mean(compoundData_seg, axis=3)
 compoundData_seg_01 = [np.copy(compoundData_seg_mean>0.2)]
 compoundData_seg_01 = np.transpose(compoundData_seg_01, (1,2,3,0))
 
+compoundData = np.flip(compoundData, 2)
+compoundData_seg_01 = np.flip(compoundData_seg_01, 2)
 
-np.save(cwd+'/PASCAL_VOC_2012/0.2/compoundData_train_color.npy', compoundData)
-np.save(cwd+'/PASCAL_VOC_2012/0.2/compoundData_seg_train_flip.npy', compoundData_seg_01)
+
+
+np.save(cwd+'/PASCAL_VOC_2012/0.2/compoundData_test.npy', compoundData)
+np.save(cwd+'/PASCAL_VOC_2012/0.2/compoundData_seg_test.npy', compoundData_seg_01)
 
 print("Process Finished")
