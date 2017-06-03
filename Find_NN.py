@@ -14,9 +14,9 @@ xyz = np.array(xyz_mat['cam_xyz_mat'])
 
 
 nbrs = NearestNeighbors(n_neighbors=9).fit(xyz)
-_, indices = nbrs.kneighbors(xyz)
+_, NN = nbrs.kneighbors(xyz)
 
-NN = np.sort(indices, axis=1)
+# NN = np.sort(indices, axis=1)
 np.save(os.getcwd()+"/VOC2012/VOC2012_comp/NN_441.npy", NN)
 
 print(NN)

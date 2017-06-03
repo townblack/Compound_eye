@@ -8,36 +8,37 @@ import os
 def lrelu(x, alpha=0.2, max_value=None):
     return tf.maximum(x, alpha*x)
 
-class AE(object):
-    def __init__(self, sess, image_size=21, image_dim=300,
-                        output_size=21, output_dim=1, batch_size=64):
+class DET(object):
+    def __init__(self, sess, image_size=10, image_dim=3, eye_num= 441, batch_size=64):
 
         self.sess = sess
         self.image_size = image_size
         self.image_dim = image_dim
-        self.output_size = output_size
-        self.output_dim = output_dim
+        self.eye_num = eye_num
+        self.neighbor = np.load(os.getcwd()+"/VOC2012/VOC2012_comp/NN_441.npy")
         # self.batch_size = batch_size
         self.build_model()
 
 
     def build_model(self):
-        self.input = tf.placeholder(tf.float32, [None, self.image_size, self.image_size, self.image_dim])
-        self.gt = tf.placeholder(tf.float32, [None, self.output_size, self.output_size, self.output_dim])
+        self.input = tf.placeholder(tf.float32, [None, self.eye_num, self.image_size, self.image_size, self.image_dim])
+        self.gt = tf.placeholder(tf.float32, [None, self.eye_num, 1])
         self.batch_size = tf.shape(self.input)[0]
         self.is_training = tf.placeholder(tf.bool)
 
-        self.gen = self.encoder(self.input, self.is_training)
+        self.enc = self.encoder(self.input, self.is_training)
+        self.det = self.detector(self.enc)
+
 
         # L1 Loss
-        self.loss = tf.reduce_mean(tf.abs(self.gt - self.gen))
+        self.loss = tf.reduce_mean(tf.abs(self.gt - self.det))
         # self.loss = tf.nn.sigmoid_cross_entropy_with_logits(gen, self.gt)
         self.loss_sum = tf.summary.scalar("loss", self.loss)
         self.vars = tf.trainable_variables()
         self.saver = tf.train.Saver()
 
 
-    def encoder(self, _im, is_training=True, reuse=False):
+    def encoder(self, _im, is_training=True):
         conv_init_params = tf.truncated_normal_initializer(stddev=0.02)
         fully_init_params = tf.random_normal_initializer(stddev=0.02)
         bias_init_params = tf.constant_initializer(0.0)
@@ -45,46 +46,70 @@ class AE(object):
                           'gamma': tf.random_normal_initializer(1., 0.02)}
         bn_params = {'is_training': is_training, 'decay': 0.9, 'epsilon': 1e-5,
                      'param_initializers': bn_init_params, 'updates_collections': None}
-        with tf.variable_scope("encoder") as scope:
-            if reuse:
-                scope.reuse_variables()
-            # 21x21x300 -> 11x11x512
-            _e0 = slim.conv2d(_im, 300, [3, 3], stride=2, activation_fn=lrelu,
+
+        # batch, 441 -> full batch
+        _cells = tf.reshape(_im, (-1, self.image_size, self.image_size, self.image_dim))
+
+        with tf.variable_scope("encoder") :
+            _e0 = slim.conv2d(_cells, 32, [3, 3], stride=2, activation_fn=tf.nn.relu,
                                   weights_initializer=conv_init_params, biases_initializer=bias_init_params,
                                   normalizer_fn=slim.batch_norm, normalizer_params=bn_params,
                                   scope='conv0')
-            # 11x11x512 -> 6x6x512
-            _e1 = slim.conv2d(_e0, 300, [3, 3], stride=2, activation_fn=lrelu,
+            _e1 = slim.conv2d(_e0, 64, [3, 3], stride=2, activation_fn=tf.nn.relu,
                                   weights_initializer=conv_init_params, biases_initializer=bias_init_params,
                                   normalizer_fn=slim.batch_norm, normalizer_params=bn_params,
                                   scope='conv1')
-
-            _e2 = slim.conv2d(_e1, 300, [3, 3], stride=2, activation_fn=lrelu,
-                              weights_initializer=conv_init_params, biases_initializer=bias_init_params,
-                              normalizer_fn=slim.batch_norm, normalizer_params=bn_params,
-                              scope='conv2')
-
-            # 3x3x512 -> 1x1x1024
-            _embed = slim.fully_connected(tf.reshape(_e2, [-1, 3*3*300]), 512, activation_fn=lrelu,
+            _embed = slim.fully_connected(tf.reshape(_e1, [-1, 3*3*64]), 128, activation_fn=tf.nn.relu,
                                   weights_initializer=fully_init_params, biases_initializer=bias_init_params,
                                   normalizer_fn=slim.batch_norm, normalizer_params=bn_params, scope='fconv')
 
+        # full batch -> batch, 441
+
+        _embed_comp = tf.reshape(_embed, (-1, self.eye_num, 128))
+
         return _embed
+
+    def detector(self, _embed):
+        with tf.variable_scope("detector") :
+            region = tf.get_variable("region", [self.batch_size, 1, 128])
+            base = tf.transpose(_embed, (1, 0, 2))
+            for r in range(self.eye_num):
+                if r == 0:
+                    region = tf.reshape(tf.reduce_mean(tf.gather(base, self.neighbor[r]),0),(tf.shape(_embed)[0], 1, 128))
+                    # [batch, 1, 128]
+                else:
+                    tf.concat([region, tf.reduce_mean(tf.gather(base, self.neighbor[r]),0)], axis=1)
+            # region = [batch, eye_num, 128]
+
+            # futher look
+            region2 = tf.get_variable("region2", [self.batch_size, 1, 128])
+            base2 = tf.transpose(region, (1, 0, 2))
+            for r in range(self.eye_num):
+                if r == 0:
+                    region2 = tf.reshape(tf.reduce_mean(tf.gather(base2, self.neighbor[r]), 0),
+                                        (self.batch_size, 1, 128))
+                    # [batch, 1, 128]
+                else:
+                    tf.concat([region2, tf.reduce_mean(tf.gather(base2, self.neighbor[r]), 0)], axis=1)
+            # region2 = [batch, eye_num, 128]
+
+            _det = slim.fully_connected(tf.reshape(region2, [-1, 128]), 1, activation_fn=tf.nn.sigmoid, scope='detect')
+            _det = tf.reshape(_det, (self.batch_size, self.eye_num, 1))
+            return _det
+
+
 
 
     def train(self, config):
-        # config contains [learning_rate, batch_size, epoch, checkpoint_dir, beta1, dataset_name]
-
-        # np.random.seed(220)
 
         cwd = os.getcwd()
         with tf.device('/cpu:1'):
-            trainimg = np.load(cwd+'/PASCAL_VOC_2012/0.2/compoundData_train.npy')
-            trainlabel = np.load(cwd + '/PASCAL_VOC_2012/0.2/compoundData_seg_train_aug.npy').astype(float)
-            ds_trainimg = np.reshape(np.copy(trainimg), (-1, 21, 21,300))         # for display, no shuffle
-            ds_trainlabel = np.reshape(np.copy(trainlabel),(-1, 21, 21, 1))     # for display, no shuffle
-            testimg = np.load(cwd+'/PASCAL_VOC_2012/0.2/compoundData_test.npy')
-            testlabel = np.load(cwd + '/PASCAL_VOC_2012/0.2/compoundData_seg_test.npy').astype(float)
+            trainimg = np.load(cwd+'/PASCAL_VOC_2012/compoundData_train.npy')
+            trainlabel = np.load(cwd + '/PASCAL_VOC_2012/compoundData_seg_train_aug.npy').astype(float)
+            # ds_trainimg = np.reshape(np.copy(trainimg), (-1, 21, 21,300))         # for display, no shuffle
+            # ds_trainlabel = np.reshape(np.copy(trainlabel),(-1, 21, 21, 1))     # for display, no shuffle
+            testimg = np.load(cwd+'/PASCAL_VOC_2012/compoundData_test.npy')
+            testlabel = np.load(cwd + '/PASCAL_VOC_2012/compoundData_seg_test.npy').astype(float)
         # didx = np.random.randint(64, size=5)
         didx = [5,6,7,8,9]
 
@@ -119,8 +144,8 @@ class AE(object):
                 random_flip = np.random.random_sample()
                 if random_flip > 0.5:
                     for batch in range(config.batch_size):
-                        batch_files[batch, :, : ,:] = np.fliplr(batch_files[batch, :, : ,:])
-                        batch_gt[batch, :, :, :] = np.fliplr(batch_gt[batch, :, :, :])
+                        batch_files[batch, :, :, :, :] = np.fliplr(batch_files[batch, :, :, :, :])
+                        batch_gt[batch, :, :, :, :] = np.fliplr(batch_gt[batch, :, :, :, :])
 
                     # batch_files = np.fliplr(batch_files)
                     # batch_gt = np.fliplr(batch_gt)
@@ -133,7 +158,7 @@ class AE(object):
                 self.save(config.checkpoint_dir, epoch, config)
 
             # if np.mod(epoch, 50) == 0:
-            self.display(epoch, config.epoch, ds_trainimg, ds_trainlabel, testimg, testlabel, didx, config.checkpoint_dir)
+            self.display(epoch, config.epoch, trainimg, trainlabel, testimg, testlabel, didx, config.checkpoint_dir)
 
 
 
@@ -141,31 +166,29 @@ class AE(object):
 
         # Caluculate match accurate for training set & test set
         _train_total = np.shape(_trainimg)[0]
-        train_img_gen, train_loss = self.sess.run([self.gen, self.loss],
+        train_det, train_loss = self.sess.run([self.det, self.loss],
                                                   feed_dict={self.input: _trainimg, self.gt: _trainlabel, self.is_training: False})
         train_score = 0
         for idx_acc_train in xrange(_train_total):
             img_score = 0
-            for r1 in xrange(21):
-                for c1 in xrange(21):
-                    if np.abs(train_img_gen[idx_acc_train, r1, c1, 0]-_trainlabel[idx_acc_train, r1, c1, 0]) < 0.5:
-                        img_score += 1
-            img_score = img_score/(21.*21.)
+            for eye in xrange(self.eye_num):
+                if np.abs(train_det[idx_acc_train, eye, 0]-_trainlabel[idx_acc_train, eye, 0]) < 0.7:
+                    img_score += 1.
+            img_score = img_score/(np.float(self.eye_num))
             train_score = train_score + img_score
         train_score = train_score/_train_total
 
 
         _test_total = np.shape(_testimg)[0]
-        test_img_gen, test_loss = self.sess.run([self.gen, self.loss],
+        test_det, test_loss = self.sess.run([self.det, self.loss],
                                                 feed_dict={self.input: _testimg, self.gt: _testlabel, self.is_training: False})
         test_score = 0
         for idx_acc_test in xrange(_test_total):
             test_img_score = 0
-            for r2 in xrange(21):
-                for c2 in xrange(21):
-                    if np.abs(test_img_gen[idx_acc_test, r2, c2, 0] - _trainlabel[idx_acc_test, r2, c2, 0]) < 0.5:
-                        test_img_score += 1
-            test_img_score = test_img_score / (21. * 21.)
+            for eye in xrange(self.eye_num):
+                if np.abs(test_det[idx_acc_test, eye, 0]-_testlabel[idx_acc_test, eye, 0]) < 0.7:
+                    test_img_score += 1.
+            test_img_score = test_img_score/(np.float(self.eye_num))
             test_score = test_score + test_img_score
         test_score = test_score / _test_total
 
@@ -179,40 +202,40 @@ class AE(object):
 
 
         # Test image, Training image plotting
-        if np.mod(_epoch,20) == 0:
-
-            plt.figure(1)
-            plt.title("TRAIN")
-
-            for dtrain in range(5):
-                c_out = train_img_gen[_didx[dtrain]]
-                a = plt.subplot(2, 5, dtrain + 1)
-                a.matshow(np.reshape(_trainlabel[_didx[dtrain], :, :, :], (21, 21)), cmap='gray')
-                b = plt.subplot(2, 5, dtrain + 5 + 1)
-                b.matshow(np.reshape(c_out, (21, 21)), cmap='gray')
-
-            test_dir = os.path.join(save_dir, "output_figure/train")
-            test_fig = "train%04d" % (_epoch + 1)
-            if not os.path.exists(test_dir):
-                os.makedirs(test_dir)
-            plt.figure(1).savefig(os.path.join(test_dir, test_fig))
-
-
-            plt.figure(2)
-            plt.title("TEST")
-
-            for dtest in range(5):
-                c_out = test_img_gen[_didx[dtest]]
-                a = plt.subplot(2, 5, dtest + 1)
-                a.matshow(np.reshape(_testlabel[_didx[dtest], :, :, :], (21, 21)), cmap='gray')
-                b = plt.subplot(2, 5, dtest + 5 + 1)
-                b.matshow(np.reshape(c_out, (21, 21)), cmap='gray')
-
-            test_dir = os.path.join(save_dir, "output_figure/test")
-            test_fig = "test_test%04d" % (_epoch + 1)
-            if not os.path.exists(test_dir):
-                os.makedirs(test_dir)
-            plt.figure(2).savefig(os.path.join(test_dir, test_fig))
+        # if np.mod(_epoch,20) == 0:
+        #
+        #     plt.figure(1)
+        #     plt.title("TRAIN")
+        #
+        #     for dtrain in range(5):
+        #         c_out = train_img_gen[_didx[dtrain]]
+        #         a = plt.subplot(2, 5, dtrain + 1)
+        #         a.matshow(np.reshape(_trainlabel[_didx[dtrain], :, :, :], (21, 21)), cmap='gray')
+        #         b = plt.subplot(2, 5, dtrain + 5 + 1)
+        #         b.matshow(np.reshape(c_out, (21, 21)), cmap='gray')
+        #
+        #     test_dir = os.path.join(save_dir, "output_figure/train")
+        #     test_fig = "train%04d" % (_epoch + 1)
+        #     if not os.path.exists(test_dir):
+        #         os.makedirs(test_dir)
+        #     plt.figure(1).savefig(os.path.join(test_dir, test_fig))
+        #
+        #
+        #     plt.figure(2)
+        #     plt.title("TEST")
+        #
+        #     for dtest in range(5):
+        #         c_out = test_img_gen[_didx[dtest]]
+        #         a = plt.subplot(2, 5, dtest + 1)
+        #         a.matshow(np.reshape(_testlabel[_didx[dtest], :, :, :], (21, 21)), cmap='gray')
+        #         b = plt.subplot(2, 5, dtest + 5 + 1)
+        #         b.matshow(np.reshape(c_out, (21, 21)), cmap='gray')
+        #
+        #     test_dir = os.path.join(save_dir, "output_figure/test")
+        #     test_fig = "test_test%04d" % (_epoch + 1)
+        #     if not os.path.exists(test_dir):
+        #         os.makedirs(test_dir)
+        #     plt.figure(2).savefig(os.path.join(test_dir, test_fig))
 
 
 
