@@ -11,7 +11,7 @@ flags = tf.app.flags
 flags.DEFINE_integer("epoch", 5001, "Epoch to train [25]")
 flags.DEFINE_float("learning_rate", 0.0002, "Learning rate of for adam [0.0002]")
 flags.DEFINE_float("beta1", 0.5, "Momentum term of adam [0.5]")
-flags.DEFINE_integer("batch_size", 64, "The size of batch images [64]")
+flags.DEFINE_integer("batch_size", 2, "The size of batch images [64]")
 flags.DEFINE_string("dataset_name", "PASCAL_VOC_2012", "The name of dataset [celebA, mnist, lsun]")
 flags.DEFINE_string("sample_dir", "samples", "Directory name to save the samples [samples]")
 flags.DEFINE_string("checkpoint_dir", "output/recent", "Directory name to save the samples [checkpoint]")
@@ -33,7 +33,7 @@ with tf.device('/gpu:2'):
         aconfig = tf.ConfigProto()
         aconfig.gpu_options.allow_growth = True
         aconfig.allow_soft_placement = True
-        aconfig.gpu_options.per_process_gpu_memory_fraction = 0.5
+        aconfig.gpu_options.per_process_gpu_memory_fraction = 0.7
 
         with tf.Session(config=aconfig) as sess:
             ae = DET(sess)

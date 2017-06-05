@@ -15,7 +15,7 @@ class DET(object):
         self.image_size = image_size
         self.image_dim = image_dim
         self.eye_num = eye_num
-        self.neighbor = np.load(os.getcwd()+"/VOC2012/VOC2012_comp/NN_441.npy")
+        self.neighbor = np.load(os.getcwd()+"/PASCAL_VOC_2012/NN_441.npy")
         # self.batch_size = batch_size
         self.build_model()
 
@@ -67,34 +67,36 @@ class DET(object):
 
         _embed_comp = tf.reshape(_embed, (-1, self.eye_num, 128))
 
-        return _embed
+        return _embed_comp
 
     def detector(self, _embed):
         with tf.variable_scope("detector") :
-            region = tf.get_variable("region", [self.batch_size, 1, 128])
+            # region = tf.get_variable("region", shape=[self.batch_size, 1, 128])
             base = tf.transpose(_embed, (1, 0, 2))
+            region = tf.reshape(tf.reduce_mean(tf.gather(base, self.neighbor[0]), 0), (tf.shape(_embed)[0], 1, 128))
             for r in range(self.eye_num):
-                if r == 0:
-                    region = tf.reshape(tf.reduce_mean(tf.gather(base, self.neighbor[r]),0),(tf.shape(_embed)[0], 1, 128))
+                if r != 0:
+                    # region = tf.reshape(tf.reduce_mean(tf.gather(base, self.neighbor[r]),0),(tf.shape(_embed)[0], 1, 128))
                     # [batch, 1, 128]
-                else:
-                    tf.concat([region, tf.reduce_mean(tf.gather(base, self.neighbor[r]),0)], axis=1)
+                #else:
+                    region = tf.concat([region, tf.reshape(tf.reduce_mean(tf.gather(base, self.neighbor[r]),0), (tf.shape(_embed)[0], 1, 128))], axis=1)
             # region = [batch, eye_num, 128]
 
             # futher look
-            region2 = tf.get_variable("region2", [self.batch_size, 1, 128])
+            # region2 = tf.get_variable("region2", shape=[self.batch_size, 1, 128])
             base2 = tf.transpose(region, (1, 0, 2))
+            region2 = tf.reshape(tf.reduce_mean(tf.gather(base2, self.neighbor[0]), 0), (tf.shape(_embed)[0], 1, 128))
             for r in range(self.eye_num):
-                if r == 0:
-                    region2 = tf.reshape(tf.reduce_mean(tf.gather(base2, self.neighbor[r]), 0),
-                                        (self.batch_size, 1, 128))
+                if r != 0:
+                    # region2 = tf.reshape(tf.reduce_mean(tf.gather(base2, self.neighbor[r]), 0),(tf.shape(_embed)[0], 1, 128))
+
                     # [batch, 1, 128]
-                else:
-                    tf.concat([region2, tf.reduce_mean(tf.gather(base2, self.neighbor[r]), 0)], axis=1)
+                #else:
+                    region2 = tf.concat([region2, tf.reshape(tf.reduce_mean(tf.gather(base2, self.neighbor[r]), 0), (tf.shape(_embed)[0], 1, 128))], axis=1)
             # region2 = [batch, eye_num, 128]
 
             _det = slim.fully_connected(tf.reshape(region2, [-1, 128]), 1, activation_fn=tf.nn.sigmoid, scope='detect')
-            _det = tf.reshape(_det, (self.batch_size, self.eye_num, 1))
+            _det = tf.reshape(_det, (tf.shape(_embed)[0], self.eye_num, 1))
             return _det
 
 
@@ -105,7 +107,7 @@ class DET(object):
         cwd = os.getcwd()
         with tf.device('/cpu:1'):
             trainimg = np.load(cwd+'/PASCAL_VOC_2012/compoundData_train.npy')
-            trainlabel = np.load(cwd + '/PASCAL_VOC_2012/compoundData_seg_train_aug.npy').astype(float)
+            trainlabel = np.load(cwd + '/PASCAL_VOC_2012/compoundData_seg_train.npy').astype(float)
             # ds_trainimg = np.reshape(np.copy(trainimg), (-1, 21, 21,300))         # for display, no shuffle
             # ds_trainlabel = np.reshape(np.copy(trainlabel),(-1, 21, 21, 1))     # for display, no shuffle
             testimg = np.load(cwd+'/PASCAL_VOC_2012/compoundData_test.npy')
@@ -141,17 +143,18 @@ class DET(object):
             for idx in range(0, batch_idxs):
                 batch_files = trainimg[range(idx * config.batch_size, (idx + 1) * config.batch_size)]
                 batch_gt = trainlabel[range(idx * config.batch_size, (idx + 1) * config.batch_size)]
-                random_flip = np.random.random_sample()
-                if random_flip > 0.5:
-                    for batch in range(config.batch_size):
-                        batch_files[batch, :, :, :, :] = np.fliplr(batch_files[batch, :, :, :, :])
-                        batch_gt[batch, :, :, :, :] = np.fliplr(batch_gt[batch, :, :, :, :])
+                # random_flip = np.random.random_sample()
+                # if random_flip > 0.5:
+                #     for batch in range(config.batch_size):
+                #         batch_files[batch, :, :, :, :] = np.fliplr(batch_files[batch, :, :, :, :])
+                #         batch_gt[batch, :, :, :, :] = np.fliplr(batch_gt[batch, :, :, :, :])
 
                     # batch_files = np.fliplr(batch_files)
                     # batch_gt = np.fliplr(batch_gt)
 
                 # Update network
-                _, summary_str = self.sess.run([optim, self.sum], feed_dict={self.input: batch_files, self.gt: batch_gt, self.is_training: True})
+                _, summary_str = self.sess.run([optim, self.sum], feed_dict={self.input: batch_files, self.gt: batch_gt,
+                                                                             self.is_training: True})
                 self.writer.add_summary(summary_str, counter)
 
             if np.mod(epoch, 200) == 1:
@@ -166,26 +169,32 @@ class DET(object):
 
         # Caluculate match accurate for training set & test set
         _train_total = np.shape(_trainimg)[0]
+
+        _trainimg = _trainimg[0:500]
+        _trainlabel = _trainlabel[0:500]
         train_det, train_loss = self.sess.run([self.det, self.loss],
-                                                  feed_dict={self.input: _trainimg, self.gt: _trainlabel, self.is_training: False})
+                                                  feed_dict={self.input: _trainimg, self.gt: _trainlabel,
+                                                              self.is_training: False})
+
         train_score = 0
-        for idx_acc_train in xrange(_train_total):
+        for idx_acc_train in range(500):
             img_score = 0
-            for eye in xrange(self.eye_num):
+            for eye in range(self.eye_num):
                 if np.abs(train_det[idx_acc_train, eye, 0]-_trainlabel[idx_acc_train, eye, 0]) < 0.7:
                     img_score += 1.
             img_score = img_score/(np.float(self.eye_num))
             train_score = train_score + img_score
-        train_score = train_score/_train_total
+        train_score = train_score/(500)
 
 
         _test_total = np.shape(_testimg)[0]
         test_det, test_loss = self.sess.run([self.det, self.loss],
-                                                feed_dict={self.input: _testimg, self.gt: _testlabel, self.is_training: False})
+                                                feed_dict={self.input: _testimg, self.gt: _testlabel,
+                                                            self.is_training: False})
         test_score = 0
-        for idx_acc_test in xrange(_test_total):
+        for idx_acc_test in range(_test_total):
             test_img_score = 0
-            for eye in xrange(self.eye_num):
+            for eye in range(self.eye_num):
                 if np.abs(test_det[idx_acc_test, eye, 0]-_testlabel[idx_acc_test, eye, 0]) < 0.7:
                     test_img_score += 1.
             test_img_score = test_img_score/(np.float(self.eye_num))
