@@ -19,7 +19,7 @@ flags.DEFINE_string("test_dir", "test", "Directory name to save the samples [che
 FLAGS = flags.FLAGS
 
 
-with tf.device('/gpu:2'):
+with tf.device('/gpu:1'):
     def main(_):
         # pp.pprint(flags.FLAGS.__flags)
 
@@ -33,7 +33,7 @@ with tf.device('/gpu:2'):
         aconfig = tf.ConfigProto()
         aconfig.gpu_options.allow_growth = True
         aconfig.allow_soft_placement = True
-        aconfig.gpu_options.per_process_gpu_memory_fraction = 0.7
+        aconfig.gpu_options.per_process_gpu_memory_fraction = 1.0
 
         with tf.Session(config=aconfig) as sess:
             ae = DET(sess)
