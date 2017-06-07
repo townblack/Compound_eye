@@ -9,20 +9,26 @@ def lrelu(x, alpha=0.2, max_value=None):
     return tf.maximum(x, alpha*x)
 
 class DET(object):
-    def __init__(self, sess, image_size=10, image_dim=3, eye_num= 441, batch_size=64):
+    def __init__(self, sess, image_size=10, image_dim=3, eye_num= 441, det_stride = 5, batch_size=64):
 
         self.sess = sess
         self.image_size = image_size
         self.image_dim = image_dim
         self.eye_num = eye_num
         self.neighbor = np.load(os.getcwd()+"/PASCAL_VOC_2012/NN_441.npy")
+        self.det_stride = det_stride
+        component = [0]
+        for comp in range(eye_num):
+            if comp % det_stride == 1:
+                component.append(comp)
+        self.stride_component = component
         # self.batch_size = batch_size
         self.build_model()
 
 
     def build_model(self):
         self.input = tf.placeholder(tf.float32, [None, self.eye_num, self.image_size, self.image_size, self.image_dim])
-        self.gt = tf.placeholder(tf.float32, [None, self.eye_num, 1])
+        self.gt = tf.placeholder(tf.float32, [None, np.size(self.stride_component), 1])
         self.batch_size = tf.shape(self.input)[0]
         self.is_training = tf.placeholder(tf.bool)
 
@@ -74,8 +80,8 @@ class DET(object):
             # region = tf.get_variable("region", shape=[self.batch_size, 1, 128])
             base = tf.transpose(_embed, (1, 0, 2))
             region = tf.reshape(tf.reduce_mean(tf.gather(base, self.neighbor[0]), 0), (tf.shape(_embed)[0], 1, 128))
-            for r in range(self.eye_num):
-                if r % 5 == 1:
+            for r in self.stride_component:
+                if r != 0:
                     # region = tf.reshape(tf.reduce_mean(tf.gather(base, self.neighbor[r]),0),(tf.shape(_embed)[0], 1, 128))
                     # [batch, 1, 128]
                 #else:
@@ -96,7 +102,7 @@ class DET(object):
             # region2 = [batch, eye_num, 128]
 
             _det = slim.fully_connected(tf.reshape(region, [-1, 128]), 1, activation_fn=tf.nn.softmax, scope='detect')
-            _det = tf.reshape(_det, (tf.shape(_embed)[0], self.eye_num, 1))
+            _det = tf.reshape(_det, (tf.shape(_embed)[0], np.size(self.stride_component), 1))
             return _det
 
 
@@ -143,6 +149,7 @@ class DET(object):
             for idx in range(0, batch_idxs):
                 batch_files = trainimg[range(idx * config.batch_size, (idx + 1) * config.batch_size)]
                 batch_gt = trainlabel[range(idx * config.batch_size, (idx + 1) * config.batch_size)]
+                batch_gt = batch_gt[:,self.stride_component,:]
                 # random_flip = np.random.random_sample()
                 # if random_flip > 0.5:
                 #     for batch in range(config.batch_size):
@@ -171,7 +178,7 @@ class DET(object):
         _train_total = np.shape(_trainimg)[0]
 
         _trainimg = _trainimg[0:1000]
-        _trainlabel = _trainlabel[0:1000]
+        _trainlabel = _trainlabel[0:1000,self.stride_component, :]
         train_det, train_loss = self.sess.run([self.det, self.loss],
                                                   feed_dict={self.input: _trainimg, self.gt: _trainlabel,
                                                               self.is_training: False})
@@ -179,25 +186,26 @@ class DET(object):
         train_score = 0
         for idx_acc_train in range(1000):
             img_score = 0
-            for eye in range(self.eye_num):
+            for eye in range(np.size(self.stride_component)):
                 if np.abs(train_det[idx_acc_train, eye, 0]-_trainlabel[idx_acc_train, eye, 0]) < 0.7:
                     img_score += 1.
-            img_score = img_score/(np.float(self.eye_num))
+            img_score = img_score/(np.float(np.size(self.stride_component)))
             train_score = train_score + img_score
         train_score = train_score/(1000)
 
 
         _test_total = np.shape(_testimg)[0]
+        _testlabel = _testlabel[:, self.stride_component, :]
         test_det, test_loss = self.sess.run([self.det, self.loss],
                                                 feed_dict={self.input: _testimg, self.gt: _testlabel,
                                                             self.is_training: False})
         test_score = 0
         for idx_acc_test in range(_test_total):
             test_img_score = 0
-            for eye in range(self.eye_num):
+            for eye in range(np.size(self.stride_component)):
                 if np.abs(test_det[idx_acc_test, eye, 0]-_testlabel[idx_acc_test, eye, 0]) < 0.7:
                     test_img_score += 1.
-            test_img_score = test_img_score/(np.float(self.eye_num))
+            test_img_score = test_img_score/(np.float(np.size(self.stride_component)))
             test_score = test_score + test_img_score
         test_score = test_score / _test_total
 
