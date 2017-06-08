@@ -168,6 +168,7 @@ class DET(object):
                                                       feed_dict={self.input: _trainimg, self.gt: _trainlabel,
                                                                   self.is_training: False})
 
+
             train_score = 0
             for idx_acc_train in range(30):
                 img_score = 0
