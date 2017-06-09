@@ -29,7 +29,11 @@ for eye in range(np.shape(compoundData_gt)[1]):
     region_val = np.mean(gt_single[:, neighbor[eye]], axis=1)
     compoundData_gt[:,eye] = region_val
 
-compoundData_gt = np.copy(compoundData_gt>0.7)
+shape = np.shape(compoundData_gt)
+comp_class = np.zeros([shape[0], shape[1], 2])
+comp_class[:,:,1] = np.copy(compoundData_gt)
+comp_class[:,:,0] = np.copy(1-compoundData_gt)
+# compoundData_gt = np.copy(compoundData_gt>0.5)
 # compoundData_gt_2 = [np.copy(compoundData_gt>0.7)]
 # compoundData_gt = np.transpose(compoundData_gt, (1, 2, 0))
 
