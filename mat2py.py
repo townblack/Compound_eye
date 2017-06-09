@@ -29,9 +29,9 @@ for eye in range(np.shape(compoundData_gt)[1]):
     region_val = np.mean(gt_single[:, neighbor[eye]], axis=1)
     compoundData_gt[:,eye] = region_val
 
-compoundData_gt = [np.copy(compoundData_gt>0.7)]
+compoundData_gt = np.copy(compoundData_gt>0.7)
 # compoundData_gt_2 = [np.copy(compoundData_gt>0.7)]
-compoundData_gt = np.transpose(compoundData_gt, (1, 2, 0))
+# compoundData_gt = np.transpose(compoundData_gt, (1, 2, 0))
 
 # np.save(cwd+'/PASCAL_VOC_2012/compoundData_test.npy', compoundData)
 np.save(cwd+'/PASCAL_VOC_2012/compoundData_seg_train.npy', compoundData_gt)
