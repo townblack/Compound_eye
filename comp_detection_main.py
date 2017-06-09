@@ -19,25 +19,25 @@ flags.DEFINE_string("test_dir", "test", "Directory name to save the samples [che
 FLAGS = flags.FLAGS
 
 
+with tf.device('/gpu:1'):
+    def main(_):
+        # pp.pprint(flags.FLAGS.__flags)
 
-def main(_):
-    # pp.pprint(flags.FLAGS.__flags)
+        # if not os.path.exists(FLAGS.sample_dir):
+        #     os.makedirs(FLAGS.sample_dir)
+        if not os.path.exists(FLAGS.checkpoint_dir):
+            os.makedirs(FLAGS.checkpoint_dir)
+        # if not os.path.exists(FLAGS.test_dir):
+        #     os.makedirs(FLAGS.test_dir)
 
-    # if not os.path.exists(FLAGS.sample_dir):
-    #     os.makedirs(FLAGS.sample_dir)
-    if not os.path.exists(FLAGS.checkpoint_dir):
-        os.makedirs(FLAGS.checkpoint_dir)
-    # if not os.path.exists(FLAGS.test_dir):
-    #     os.makedirs(FLAGS.test_dir)
+        aconfig = tf.ConfigProto()
+        aconfig.gpu_options.allow_growth = True
+        aconfig.allow_soft_placement = True
+        aconfig.gpu_options.per_process_gpu_memory_fraction = 1.0
 
-    aconfig = tf.ConfigProto()
-    aconfig.gpu_options.allow_growth = True
-    aconfig.allow_soft_placement = True
-    aconfig.gpu_options.per_process_gpu_memory_fraction = 1.0
+        with tf.Session(config=aconfig) as sess:
+            ae = DET(sess)
+            ae.train(FLAGS)
 
-    with tf.Session(config=aconfig) as sess:
-        ae = DET(sess)
-        ae.train(FLAGS)
-
-if __name__ == '__main__':
-    tf.app.run()
+    if __name__ == '__main__':
+        tf.app.run()
