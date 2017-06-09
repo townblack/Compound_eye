@@ -29,7 +29,7 @@ class DET(object):
 
     def build_model(self):
         self.input = tf.placeholder(tf.float32, [None, self.eye_num, self.image_size, self.image_size, self.image_dim])
-        self.gt = tf.placeholder(tf.float32, [None, self.eye_num, 1])
+        self.gt = tf.placeholder(tf.float32, [None, self.eye_num])
         self.batch_size = tf.shape(self.input)[0]
         self.is_training = tf.placeholder(tf.bool)
 
@@ -38,8 +38,8 @@ class DET(object):
 
 
         # L1 Loss
-        self.loss = tf.reduce_mean(tf.abs(self.gt - self.det))
-        # self.loss = tf.nn.sigmoid_cross_entropy_with_logits(gen, self.gt)
+        # self.loss = tf.reduce_mean(tf.abs(self.gt - self.det))
+        self.loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=self.gt, logits=self.det))
         self.loss_sum = tf.summary.scalar("loss", self.loss)
         self.vars = tf.trainable_variables()
         self.saver = tf.train.Saver()
@@ -85,8 +85,8 @@ class DET(object):
             # shape = [batch, 441, 9, 128]
             region = tf.reduce_mean(region, axis=2)
 
-            _det = slim.fully_connected(tf.reshape(region, [-1, 128]), 1, activation_fn=tf.nn.softmax, scope='detect')
-            _det = tf.reshape(_det, (tf.shape(_embed)[0], self.eye_num, 1))
+            _det = slim.fully_connected(tf.reshape(region, [-1, 128]), 1, activation_fn=None, scope='detect')
+            _det = tf.reshape(_det, (tf.shape(_embed)[0], self.eye_num))
             return _det
 
 
@@ -128,74 +128,77 @@ class DET(object):
 
             batch_idxs = len(trainimg) // config.batch_size
 
-            with tf.device('/gpu:1'):
-                for idx in range(0, batch_idxs):
-                    batch_files = trainimg[range(idx * config.batch_size, (idx + 1) * config.batch_size)]
-                    batch_gt = trainlabel[range(idx * config.batch_size, (idx + 1) * config.batch_size)]
-                    # batch_gt = batch_gt[:,self.stride_component,:]
-                    # random_flip = np.random.random_sample()
-                    # if random_flip > 0.5:
-                    #     for batch in range(config.batch_size):
-                    #         batch_files[batch, :, :, :, :] = np.fliplr(batch_files[batch, :, :, :, :])
-                    #         batch_gt[batch, :, :, :, :] = np.fliplr(batch_gt[batch, :, :, :, :])
 
-                        # batch_files = np.fliplr(batch_files)
-                        # batch_gt = np.fliplr(batch_gt)
+            for idx in range(0, batch_idxs):
+                batch_files = trainimg[range(idx * config.batch_size, (idx + 1) * config.batch_size)]
+                batch_gt = trainlabel[range(idx * config.batch_size, (idx + 1) * config.batch_size)]
+                didx = np.random.randint(len(testimg), size=30)
+                test_batch_files = testimg[didx]
+                test_batch_gt = testlabel[didx]
+                # batch_gt = batch_gt[:,self.stride_component,:]
+                # random_flip = np.random.random_sample()
+                # if random_flip > 0.5:
+                #     for batch in range(config.batch_size):
+                #         batch_files[batch, :, :, :, :] = np.fliplr(batch_files[batch, :, :, :, :])
+                #         batch_gt[batch, :, :, :, :] = np.fliplr(batch_gt[batch, :, :, :, :])
 
-                    # Update network
-                    _, summary_str = self.sess.run([optim, self.sum], feed_dict={self.input: batch_files, self.gt: batch_gt,
-                                                                                 self.is_training: True})
-                    self.writer.add_summary(summary_str, counter)
+                    # batch_files = np.fliplr(batch_files)
+                    # batch_gt = np.fliplr(batch_gt)
 
-                if np.mod(epoch, 200) == 1:
-                    self.save(config.checkpoint_dir, epoch, config)
-
+                # Update network
+                _, summary_str = self.sess.run([optim, self.sum], feed_dict={self.input: batch_files, self.gt: batch_gt,
+                                                                             self.is_training: True})
+                self.writer.add_summary(summary_str, counter)
+                # if np.mod(idx, 300) ==1:
+                #     self.display(epoch, config.epoch, batch_files, batch_gt, test_batch_files, test_batch_gt, idx, config.checkpoint_dir)
+            if np.mod(epoch, 200) == 1:
+                self.save(config.checkpoint_dir, epoch, config)
 
             # if np.mod(epoch, 50) == 0:
-            self.display(epoch, config.epoch, trainimg, trainlabel, testimg, testlabel, didx, config.checkpoint_dir)
+            self.display(epoch, config.epoch, trainimg[:30], trainlabel[:30], testimg[:30], testlabel[:30], 0, config.checkpoint_dir)
 
 
 
-    def display(self, _epoch, total_epochs, _trainimg, _trainlabel, _testimg, _testlabel, _didx, save_dir):
+    def display(self, _epoch, total_epochs, _trainimg, _trainlabel, _testimg, _testlabel, _idx, save_dir):
         with tf.device('/gpu:2'):
         # Caluculate match accurate for training set & test set
             _train_total = np.shape(_trainimg)[0]
 
-
-            _trainimg = _trainimg[0:30]
-            _trainlabel = _trainlabel[0:30]
+            #
+            # _trainimg = _trainimg[0:30]
+            # _trainlabel = _trainlabel[0:30]
             train_det, train_loss = self.sess.run([self.det, self.loss],
                                                       feed_dict={self.input: _trainimg, self.gt: _trainlabel,
                                                                   self.is_training: False})
 
 
             train_score = 0
-            for idx_acc_train in range(30):
+            for idx_acc_train in range(_train_total):
                 img_score = 0
                 for eye in range(self.eye_num):
-                    if np.abs(train_det[idx_acc_train, eye, 0]-_trainlabel[idx_acc_train, eye, 0]) < 0.7:
+                    if np.abs(train_det[idx_acc_train, eye]-_trainlabel[idx_acc_train, eye]) < 0.7:
                         img_score += 1.
                 img_score = img_score/(np.float(self.eye_num))
                 train_score = train_score + img_score
-            train_score = train_score/(30)
+            train_score = train_score/(_train_total)
 
 
             _test_total = np.shape(_testimg)[0]
-            _testimg = _testimg[0:30]
-            _testlabel = _testlabel[0:30]
+            # _testimg = _testimg[0:30]
+            # _testlabel = _testlabel[0:30]
             # _testlabel = _testlabel[:, self.stride_component, :]
             test_det, test_loss = self.sess.run([self.det, self.loss],
                                                     feed_dict={self.input: _testimg, self.gt: _testlabel,
                                                                 self.is_training: False})
             test_score = 0
-            for idx_acc_test in range(30):
+            for idx_acc_test in range(_test_total):
                 test_img_score = 0
                 for eye in range(self.eye_num):
-                    if np.abs(test_det[idx_acc_test, eye, 0]-_testlabel[idx_acc_test, eye, 0]) < 0.7:
+                    if np.abs(test_det[idx_acc_test, eye]-_testlabel[idx_acc_test, eye]) < 0.7:
                         test_img_score += 1.
                 test_img_score = test_img_score/(np.float(self.eye_num))
                 test_score = test_score + test_img_score
-            test_score = test_score / 30
+            test_score = test_score / _test_total
 
             # Calculate loss for training set & test set
 
@@ -203,7 +206,8 @@ class DET(object):
             train_loss = self.sess.run(self.loss, feed_dict=train_feeds)
             test_feeds = {self.input: _testimg, self.gt: _testlabel, self.is_training: False}
             test_loss = self.sess.run(self.loss, feed_dict=test_feeds)
-            print("Epoch: [%04d/%04d] train accuracy: %.9f, train loss: %.9f, test accuracy: %.9f, test loss: %.9f" % (_epoch + 1, total_epochs, train_score, train_loss, test_score, test_loss))
+            print("Epoch: [%04d/%04d, batch : %04d] train accuracy: %.9f, train loss: %.9f, test accuracy: %.9f, test loss: %.9f"
+                  % (_epoch + 1, total_epochs, _idx, train_score, train_loss, test_score, test_loss))
 
 
         # Test image, Training image plotting
