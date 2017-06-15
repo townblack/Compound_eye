@@ -57,7 +57,7 @@ neighbor = [[1, 2, 0, 8, 3, 4, 5, 6, 7]]
 
 
 idx = 1
-for j in range(1, len(level_s)-1):
+for j in range(1, len(level_s)-2):
     for k in range(level_s[j+1]-level_s[j]):
         upfloor = NearestNeighbors(n_neighbors=1).fit(level_list[j-1])
         myfloor = NearestNeighbors(n_neighbors=3).fit(level_list[j])
