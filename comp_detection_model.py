@@ -15,23 +15,27 @@ class DET(object):
         self.image_size = image_size
         self.image_dim = image_dim
         self.eye_num = eye_num
-        self.neighbor = np.load(os.getcwd()+"/PASCAL_VOC_2012/NN_441.npy")
+        self.neighbor = np.load(os.getcwd()+"/PASCAL_VOC_2012/NN_441_manual.npy")
+        self.reg_num = np.shape(self.neighbor)[0]
         self.nei_num = np.shape(self.neighbor)[1]
         n_idx = []
-        for s in range(eye_num):
+        for s in range(self.reg_num):
             c_idx = []
             for n in range(self.nei_num):
                 c_idx.append([s, self.neighbor[s][n]])
             n_idx.append(c_idx)
         self.n_idx = n_idx
-        self.rand_num = 40
+        self.rand_num = 80
         # self.batch_size = batch_size
         self.build_model()
 
 
     def build_model(self):
         self.input = tf.placeholder(tf.float32, [None, self.eye_num, self.image_size, self.image_size, self.image_dim])
-        self.gt = tf.placeholder(tf.float32, [None, self.eye_num, 2])
+        # classification
+        # self.gt = tf.placeholder(tf.float32, [None, self.eye_num, 2])
+        # regression
+        self.gt = tf.placeholder(tf.float32, [None, self.eye_num])
         self.batch_size = tf.shape(self.input)[0]
         self.is_training = tf.placeholder(tf.bool)
 
@@ -41,15 +45,18 @@ class DET(object):
 
         # L1 Loss
         # self.loss = tf.reduce_mean(tf.abs(self.gt - self.det))
-        sel_gt = tf.gather(tf.transpose(self.gt, [1, 0, 2]), self.randsel)
-        sel_gt = tf.transpose(sel_gt, [1, 0, 2])
-        gt_full = tf.reshape(sel_gt, [-1, 2])
-        det_full = tf.reshape(self.det, [-1, 2])
+        sel_gt = tf.gather(tf.transpose(self.gt, [1, 0]), self.randsel)
+        sel_gt = tf.transpose(sel_gt, [1, 0])
+        self.gt_full = tf.reshape(sel_gt, [-1])
+        self.det_full = tf.reshape(self.det, [-1])
         with tf.name_scope("loss") as scope:
-            self.loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=gt_full, logits=det_full))
+            # self.loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=gt_full, logits=det_full))
+            self.loss = tf.divide(tf.nn.l2_loss(self.gt_full - self.det_full), tf.to_float(tf.shape(self.det_full)[0]))
+            # self.loss = tf.reduce_mean(tf.abs(self.gt_full - self.det_full))
             self.loss_sum_train = tf.summary.scalar("loss_train", self.loss)
             self.loss_sum_test = tf.summary.scalar("loss_test", self.loss)
-        self.corr = tf.equal(tf.arg_max(det_full,1), tf.arg_max(gt_full,1))
+        # self.corr = tf.equal(tf.arg_max(det_full,1), tf.arg_max(gt_full,1))
+        self.corr = tf.equal(self.gt_full>0.5, self.det_full>0.5)
         # with tf.name_scope("accr") assc
         with tf.name_scope("accr") as scope:
             self.accr = tf.reduce_mean(tf.cast(self.corr, "float"))
@@ -73,21 +80,21 @@ class DET(object):
         _cells = tf.reshape(_im, (-1, self.image_size, self.image_size, self.image_dim))
 
         with tf.variable_scope("encoder") :
-            _e0 = slim.conv2d(_cells, 32, [3, 3], stride=2, activation_fn=tf.nn.relu,
+            _e0 = slim.conv2d(_cells, 64, [3, 3], stride=2, activation_fn=tf.nn.relu,
                                   weights_initializer=conv_init_params, biases_initializer=bias_init_params,
                                   normalizer_fn=slim.batch_norm, normalizer_params=bn_params,
                                   scope='conv0')
-            _e1 = slim.conv2d(_e0, 64, [3, 3], stride=2, activation_fn=tf.nn.relu,
+            _e1 = slim.conv2d(_e0, 128, [3, 3], stride=2, activation_fn=tf.nn.relu,
                                   weights_initializer=conv_init_params, biases_initializer=bias_init_params,
                                   normalizer_fn=slim.batch_norm, normalizer_params=bn_params,
                                   scope='conv1')
-            _embed = slim.fully_connected(tf.reshape(_e1, [-1, 3*3*64]), 128, activation_fn=tf.nn.relu,
+            _embed = slim.fully_connected(tf.reshape(_e1, [-1, 3*3*128]), 256, activation_fn=tf.nn.relu,
                                   weights_initializer=fully_init_params, biases_initializer=bias_init_params,
                                   normalizer_fn=slim.batch_norm, normalizer_params=bn_params, scope='fconv')
 
         # full batch -> batch, 441
 
-        _embed_comp = tf.reshape(_embed, (-1, self.eye_num, 1, 128))
+        _embed_comp = tf.reshape(_embed, (-1, self.eye_num, 1, 256))
 
         return _embed_comp
 
@@ -108,8 +115,8 @@ class DET(object):
             # shape = [batch, 441, 9, 128]
             region = tf.reduce_mean(region, axis=2)
 
-            _det = slim.fully_connected(tf.reshape(region, [-1, 128]), 2, activation_fn=None, scope='detect')
-            _det = tf.reshape(_det, (tf.shape(_embed)[0], self.rand_num, 2))
+            _det = slim.fully_connected(tf.reshape(region, [-1, 256]), 1, activation_fn=tf.nn.sigmoid, scope='detect')
+            _det = tf.reshape(_det, (tf.shape(_embed)[0], self.rand_num, 1))
 
             return _det, randsel
 
@@ -119,13 +126,12 @@ class DET(object):
         cwd = os.getcwd()
         with tf.device('/cpu:1'):
             trainimg = np.load(cwd+'/PASCAL_VOC_2012/compoundData_train.npy')
-            trainlabel = np.load(cwd + '/PASCAL_VOC_2012/compoundData_seg_train.npy').astype(float)
+            trainlabel = np.load(cwd + '/PASCAL_VOC_2012/compoundData_seg_train_float.npy').astype(float)
             # ds_trainimg = np.reshape(np.copy(trainimg), (-1, 21, 21,300))         # for display, no shuffle
             # ds_trainlabel = np.reshape(np.copy(trainlabel),(-1, 21, 21, 1))     # for display, no shuffle
             testimg = np.load(cwd+'/PASCAL_VOC_2012/compoundData_test.npy')
-            testlabel = np.load(cwd + '/PASCAL_VOC_2012/compoundData_seg_test.npy').astype(float)
+            testlabel = np.load(cwd + '/PASCAL_VOC_2012/compoundData_seg_test_float.npy').astype(float)
         # didx = np.random.randint(64, size=5)
-        didx = [5,6,7,8,9]
 
         optim = tf.train.AdamOptimizer(config.learning_rate, beta1=config.beta1).minimize(self.loss, var_list=self.vars)
 
@@ -134,11 +140,11 @@ class DET(object):
 
         # self.sum = tf.summary.merge([self.loss_sum])
         self.sum = tf.summary.merge_all()
-        self.writer = tf.summary.FileWriter("./logs", self.sess.graph)
+        self.writer = tf.summary.FileWriter(config.checkpoint_dir, self.sess.graph)
 
         counter = 1
 
-        load_dir = config.checkpoint_dir + "/PASCAL_VOC_2012"
+        load_dir = config.checkpoint_dir # + "/PASCAL_VOC_2012"
         if self.load(load_dir, config=config):
             print(" [*] Load SUCCESS")
         else:
@@ -162,10 +168,6 @@ class DET(object):
                 test_batch_gt = testlabel[didx]
                 random_flip = np.random.random_sample()
                 if random_flip > 0.5:
-                    # for batch in range(config.batch_size):
-                    #     batch_files[batch, :, :, :, :] = np.fliplr(batch_files[batch, :, :, :, :])
-                    #     batch_gt[batch, :, :, :, :] = np.fliplr(batch_gt[batch, :, :, :, :])
-
                     batch_files = np.flip(batch_files, 1)
                     batch_gt = np.flip(batch_gt, 1)
                 # Update network
@@ -196,93 +198,42 @@ class DET(object):
 
 
     def display(self, _epoch, total_epochs, _trainimg, _trainlabel, _testimg, _testlabel, _idx, save_dir):
-        with tf.device('/gpu:2'):
         # Caluculate match accurate for training set & test set
-            _train_total = np.shape(_trainimg)[0]
+        _train_total = np.shape(_trainimg)[0]
 
-            #
-            # _trainimg = _trainimg[0:30]
-            # _trainlabel = _trainlabel[0:30]
-            # with tf.name_scope("train") as scope:
-            train_det, train_loss, train_score = self.sess.run([self.det, self.loss, self.accr],
-                                                  feed_dict={self.input: _trainimg, self.gt: _trainlabel,
-                                                              self.is_training: False})
-
-
-
-            # train_score = 0
-            # for idx_acc_train in range(_train_total):
-            #     img_score = 0
-            #     for eye in range(self.eye_num):
-            #         if np.abs(train_det[idx_acc_train, eye]-_trainlabel[idx_acc_train, eye]) < 0.7:
-            #             img_score += 1.
-            #     img_score = img_score/(np.float(self.eye_num))
-            #     train_score = train_score + img_score
-            # train_score = train_score/(_train_total)
-
-
-            _test_total = np.shape(_testimg)[0]
-            # _testimg = _testimg[0:30]
-            # _testlabel = _testlabel[0:30]
-            # _testlabel = _testlabel[:, self.stride_component, :]
-            test_det, test_loss, test_score = self.sess.run([self.det, self.loss,self.accr],
-                                                    feed_dict={self.input: _testimg, self.gt: _testlabel,
-                                                                self.is_training: False})
-            # test_score = 0
-            # for idx_acc_test in range(_test_total):
-            #     test_img_score = 0
-            #     for eye in range(self.eye_num):
-            #         if np.abs(test_det[idx_acc_test, eye]-_testlabel[idx_acc_test, eye]) < 0.7:
-            #             test_img_score += 1.
-            #     test_img_score = test_img_score/(np.float(self.eye_num))
-            #     test_score = test_score + test_img_score
-            # test_score = test_score / _test_total
-
-            # Calculate loss for training set & test set
-
-            train_feeds = {self.input: _trainimg, self.gt: _trainlabel, self.is_training: False}
-            train_loss = self.sess.run(self.loss, feed_dict=train_feeds)
-            test_feeds = {self.input: _testimg, self.gt: _testlabel, self.is_training: False}
-            test_loss = self.sess.run(self.loss, feed_dict=test_feeds)
-            print("Epoch: [%04d/%04d, batch : %04d] train accuracy: %.9f, train loss: %.9f, test accuracy: %.9f, test loss: %.9f"
-                  % (_epoch + 1, total_epochs, _idx, train_score, train_loss, test_score, test_loss))
-
-
-        # Test image, Training image plotting
-        # if np.mod(_epoch,20) == 0:
         #
-        #     plt.figure(1)
-        #     plt.title("TRAIN")
+        # _trainimg = _trainimg[0:30]
+        # _trainlabel = _trainlabel[0:30]
+        # with tf.name_scope("train") as scope:
+        train_det, train_loss, train_score = self.sess.run([self.det, self.loss, self.accr],
+                                              feed_dict={self.input: _trainimg, self.gt: _trainlabel,
+                                                          self.is_training: False})
+
+
+        _test_total = np.shape(_testimg)[0]
+        # _testimg = _testimg[0:30]
+        # _testlabel = _testlabel[0:30]
+        # _testlabel = _testlabel[:, self.stride_component, :]
+        test_det, test_loss, test_score = self.sess.run([self.det, self.loss,self.accr],
+                                                feed_dict={self.input: _testimg, self.gt: _testlabel,
+                                                            self.is_training: False})
+
+        # Calculate loss for training set & test set
+
+        train_feeds = {self.input: _trainimg, self.gt: _trainlabel, self.is_training: False}
+        train_loss, train_val, train_gt = self.sess.run([self.loss, self.det_full, self.gt_full ], feed_dict=train_feeds)
+        test_feeds = {self.input: _testimg, self.gt: _testlabel, self.is_training: False}
+        test_loss, test_val, test_gt = self.sess.run([self.loss, self.det_full, self.gt_full ], feed_dict=test_feeds)
+        print("Epoch: [%04d/%04d, batch : %04d] train accuracy: %.9f, train loss: %.9f, test accuracy: %.9f, test loss: %.9f"
+              % (_epoch + 1, total_epochs, _idx, train_score, train_loss, test_score, test_loss))
         #
-        #     for dtrain in range(5):
-        #         c_out = train_img_gen[_didx[dtrain]]
-        #         a = plt.subplot(2, 5, dtrain + 1)
-        #         a.matshow(np.reshape(_trainlabel[_didx[dtrain], :, :, :], (21, 21)), cmap='gray')
-        #         b = plt.subplot(2, 5, dtrain + 5 + 1)
-        #         b.matshow(np.reshape(c_out, (21, 21)), cmap='gray')
+        # print("training")
+        # print("gt_full : " , train_gt)
+        # print("det_full : " , train_det)
         #
-        #     test_dir = os.path.join(save_dir, "output_figure/train")
-        #     test_fig = "train%04d" % (_epoch + 1)
-        #     if not os.path.exists(test_dir):
-        #         os.makedirs(test_dir)
-        #     plt.figure(1).savefig(os.path.join(test_dir, test_fig))
-        #
-        #
-        #     plt.figure(2)
-        #     plt.title("TEST")
-        #
-        #     for dtest in range(5):
-        #         c_out = test_img_gen[_didx[dtest]]
-        #         a = plt.subplot(2, 5, dtest + 1)
-        #         a.matshow(np.reshape(_testlabel[_didx[dtest], :, :, :], (21, 21)), cmap='gray')
-        #         b = plt.subplot(2, 5, dtest + 5 + 1)
-        #         b.matshow(np.reshape(c_out, (21, 21)), cmap='gray')
-        #
-        #     test_dir = os.path.join(save_dir, "output_figure/test")
-        #     test_fig = "test_test%04d" % (_epoch + 1)
-        #     if not os.path.exists(test_dir):
-        #         os.makedirs(test_dir)
-        #     plt.figure(2).savefig(os.path.join(test_dir, test_fig))
+        # print("testing")
+        # print("gt_full : ", test_gt)
+        # print("det_full : ", test_det)
 
 
 
