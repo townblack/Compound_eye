@@ -135,7 +135,7 @@ class DET(object):
 
             return _det, randsel
 
-    def detector_test(self, _embed, is_training=True):
+    def detector_test(self, _embed, is_training=False):
         conv_init_params = tf.truncated_normal_initializer(stddev=0.02)
         fully_init_params = tf.random_normal_initializer(stddev=0.02)
         bias_init_params = tf.constant_initializer(0.0)
@@ -146,7 +146,8 @@ class DET(object):
 
 
 
-        with tf.variable_scope("det_test") :
+        with tf.variable_scope("detector") as scope:
+            scope.reuse_variables()
             region = tf.transpose(_embed, [2, 1, 0, 3])
             region = tf.tile(region, [self.reg_num, 1, 1, 1])
             region = tf.gather_nd(region, self.n_idx)

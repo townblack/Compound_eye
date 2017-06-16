@@ -14,7 +14,7 @@ flags.DEFINE_float("beta1", 0.5, "Momentum term of adam [0.5]")
 flags.DEFINE_integer("batch_size", 64, "The size of batch images [64]")
 flags.DEFINE_string("dataset_name", "PASCAL_VOC_2012", "The name of dataset [celebA, mnist, lsun]")
 flags.DEFINE_string("sample_dir", "samples", "Directory name to save the samples [samples]")
-flags.DEFINE_string("checkpoint_dir", "output/basic_10", "Directory name to save the samples [checkpoint]")
+flags.DEFINE_string("checkpoint_dir", "output/Tri_fc_10", "Directory name to save the samples [checkpoint]")
 flags.DEFINE_string("test_dir", "test", "Directory name to save the samples [checkpoint]")
 FLAGS = flags.FLAGS
 
