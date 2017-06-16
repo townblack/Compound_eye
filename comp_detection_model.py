@@ -1,7 +1,7 @@
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
 import numpy as np
-import matplotlib.pyplot as plt
+from visualize import Visualize
 import os
 
 
@@ -9,7 +9,7 @@ def lrelu(x, alpha=0.2, max_value=None):
     return tf.maximum(x, alpha*x)
 
 class DET(object):
-    def __init__(self, sess, image_size=10, image_dim=3, eye_num= 441, det_stride = 5, batch_size=64):
+    def __init__(self, sess, image_size=10, image_dim=3, eye_num= 441):
 
         self.sess = sess
         self.image_size = image_size
@@ -35,12 +35,13 @@ class DET(object):
         # classification
         # self.gt = tf.placeholder(tf.float32, [None, self.eye_num, 2])
         # regression
-        self.gt = tf.placeholder(tf.float32, [None, self.eye_num])
+        self.gt = tf.placeholder(tf.float32, [None, self.reg_num])
         self.batch_size = tf.shape(self.input)[0]
         self.is_training = tf.placeholder(tf.bool)
 
         self.enc = self.encoder(self.input, self.is_training)
-        self.det, self.randsel = self.detector(self.enc)
+        self.det, self.randsel = self.detector(self.enc, self.is_training)
+        self.det_test = self.detector_test(self.enc, self.is_training)
 
 
         # L1 Loss
@@ -98,10 +99,18 @@ class DET(object):
 
         return _embed_comp
 
-    def detector(self, _embed):
+    def detector(self, _embed, is_training=True):
+        conv_init_params = tf.truncated_normal_initializer(stddev=0.02)
+        fully_init_params = tf.random_normal_initializer(stddev=0.02)
+        bias_init_params = tf.constant_initializer(0.0)
+        bn_init_params = {'beta': tf.constant_initializer(0.),
+                          'gamma': tf.random_normal_initializer(1., 0.02)}
+        bn_params = {'is_training': is_training, 'decay': 0.9, 'epsilon': 1e-5,
+                     'param_initializers': bn_init_params, 'updates_collections': None}
 
         # Choose random place
-        randsel = np.random.randint(19*19, size=self.rand_num)
+        randsel = np.random.choice(19*19, self.rand_num, replace=False)
+        np.sort(randsel)
         selneig = np.take(self.n_idx,randsel, axis=0)
         for o in range(self.rand_num):
             for n in range(self.nei_num):
@@ -112,25 +121,62 @@ class DET(object):
             region = tf.tile(region, [self.rand_num, 1, 1, 1])
             region = tf.gather_nd(region, selneig)
             region = tf.transpose(region, [2, 0, 1, 3])
-            # shape = [batch, 441, 9, 128]
+            # shape = [batch, rand_num, 9, 256]
             region = tf.reduce_mean(region, axis=2)
-
+            # region = tf.reshape(region, [-1, 3, 3, 256])
+            # region = slim.conv2d(region, 256, [3, 3], stride=1, padding='VALID', activation_fn=tf.nn.relu,
+            #                   weights_initializer=conv_init_params, biases_initializer=bias_init_params,
+            #                   normalizer_fn=slim.batch_norm, normalizer_params=bn_params,
+            #                   scope='conv0')
+            # shape = [batch, rand_num, 256]
             _det = slim.fully_connected(tf.reshape(region, [-1, 256]), 1, activation_fn=tf.nn.sigmoid, scope='detect')
-            _det = tf.reshape(_det, (tf.shape(_embed)[0], self.rand_num, 1))
+            _det = tf.reshape(_det, (tf.shape(_embed)[0], self.rand_num))
+
 
             return _det, randsel
+
+    def detector_test(self, _embed, is_training=True):
+        conv_init_params = tf.truncated_normal_initializer(stddev=0.02)
+        fully_init_params = tf.random_normal_initializer(stddev=0.02)
+        bias_init_params = tf.constant_initializer(0.0)
+        bn_init_params = {'beta': tf.constant_initializer(0.),
+                          'gamma': tf.random_normal_initializer(1., 0.02)}
+        bn_params = {'is_training': is_training, 'decay': 0.9, 'epsilon': 1e-5,
+                     'param_initializers': bn_init_params, 'updates_collections': None}
+
+
+
+        with tf.variable_scope("det_test") :
+            region = tf.transpose(_embed, [2, 1, 0, 3])
+            region = tf.tile(region, [self.reg_num, 1, 1, 1])
+            region = tf.gather_nd(region, self.n_idx)
+            region = tf.transpose(region, [2, 0, 1, 3])
+            # shape = [batch, rand_num, 9, 256]
+            region = tf.reduce_mean(region, axis=2)
+            # region = tf.reshape(region, [-1, 3, 3, 256])
+            # region = slim.conv2d(region, 256, [3, 3], stride=1, padding='VALID', activation_fn=tf.nn.relu,
+            #                   weights_initializer=conv_init_params, biases_initializer=bias_init_params,
+            #                   normalizer_fn=slim.batch_norm, normalizer_params=bn_params,
+            #                   scope='conv0')
+            # shape = [batch, rand_num, 256]
+            _det = slim.fully_connected(tf.reshape(region, [-1, 256]), 1, activation_fn=tf.nn.sigmoid, scope='detect')
+            _det = tf.reshape(_det, (tf.shape(_embed)[0], self.reg_num))
+
+
+            return _det
 
 
     def train(self, config):
 
         cwd = os.getcwd()
         with tf.device('/cpu:1'):
-            trainimg = np.load(cwd+'/PASCAL_VOC_2012/compoundData_train.npy')
-            trainlabel = np.load(cwd + '/PASCAL_VOC_2012/compoundData_seg_train_float.npy').astype(float)
-            # ds_trainimg = np.reshape(np.copy(trainimg), (-1, 21, 21,300))         # for display, no shuffle
-            # ds_trainlabel = np.reshape(np.copy(trainlabel),(-1, 21, 21, 1))     # for display, no shuffle
-            testimg = np.load(cwd+'/PASCAL_VOC_2012/compoundData_test.npy')
-            testlabel = np.load(cwd + '/PASCAL_VOC_2012/compoundData_seg_test_float.npy').astype(float)
+            trainimg = np.load(cwd+'/PASCAL_VOC_2012/10/compoundData_train.npy')
+            trainlabel = np.load(cwd + '/PASCAL_VOC_2012/10/compoundData_seg_train_manual.npy').astype(float)
+            ds_trainimg = np.copy(trainimg)       # for display, no shuffle
+            ds_trainlabel = np.load(cwd + '/PASCAL_VOC_2012/10/compoundData_gt_train.npy').astype(float)     # for display, no shuffle
+            testimg = np.load(cwd+'/PASCAL_VOC_2012/10/compoundData_test.npy')
+            testlabel = np.load(cwd + '/PASCAL_VOC_2012/10/compoundData_seg_test_manual.npy').astype(float)
+            ds_testlabel = np.load(cwd + '/PASCAL_VOC_2012/10/compoundData_gt_test.npy').astype(float)
         # didx = np.random.randint(64, size=5)
 
         optim = tf.train.AdamOptimizer(config.learning_rate, beta1=config.beta1).minimize(self.loss, var_list=self.vars)
@@ -172,68 +218,59 @@ class DET(object):
                     batch_gt = np.flip(batch_gt, 1)
                 # Update network
                 self.sess.run(optim, feed_dict={self.input: batch_files, self.gt: batch_gt,
-                                                                             self.is_training: True})
-                # _, summary_str = self.sess.run([optim, self.sum], feed_dict={self.input: batch_files, self.gt: batch_gt,
-                #                                                              self.is_training: True})
-                # self.writer.add_summary(summary_str, epoch)
+                                                self.is_training: True})
                 if np.mod(idx, 10) ==1:
                     self.display(epoch, config.epoch, batch_files, batch_gt, test_batch_files, test_batch_gt, idx, config.checkpoint_dir)
                     loss_train, accr_train = self.sess.run([self.loss_sum_train, self.accr_train], feed_dict={self.input: batch_files, self.gt: batch_gt,
-                                                                             self.is_training: True})
+                                                            self.is_training: False})
                     self.writer.add_summary(loss_train, counter)
                     self.writer.add_summary(accr_train, counter)
 
                     loss_test, accr_test = self.sess.run([self.loss_sum_test, self.accr_test],
                                                            feed_dict={self.input: test_batch_files, self.gt: test_batch_gt,
-                                                                      self.is_training: True})
+                                                                      self.is_training: False})
                     self.writer.add_summary(loss_test, counter)
                     self.writer.add_summary(accr_test, counter)
                     counter =counter +1
-            if np.mod(epoch, 200) == 1:
+
+
+            # Visualization
+            det_vi_train = self.sess.run(self.det_test, feed_dict={self.input:ds_trainimg[0:5], self.is_training: False})
+            save_train = config.checkpoint_dir+"/train"
+            if not os.path.exists(save_train):
+                os.makedirs(save_train)
+            vi_train = Visualize(ds_trainlabel[:5], det_vi_train, self.neighbor, save_train, epoch)
+            vi_train.plot()
+
+
+            det_vi_test = self.sess.run(self.det_test,feed_dict={self.input: testimg[0:5], self.is_training: False})
+            save_test = config.checkpoint_dir + "/test"
+            if not os.path.exists(save_test):
+                os.makedirs(save_test)
+            vi_test = Visualize(ds_testlabel[:5], det_vi_test, self.neighbor, save_test, epoch)
+            vi_test.plot()
+
+
+            if np.mod(epoch, 50) == 1:
                 self.save(config.checkpoint_dir, epoch, config)
 
-            # if np.mod(epoch, 50) == 0:
-            # self.display(epoch, config.epoch, trainimg[:30], trainlabel[:30], testimg[:30], testlabel[:30], 0, config.checkpoint_dir)
 
 
 
     def display(self, _epoch, total_epochs, _trainimg, _trainlabel, _testimg, _testlabel, _idx, save_dir):
         # Caluculate match accurate for training set & test set
-        _train_total = np.shape(_trainimg)[0]
-
-        #
-        # _trainimg = _trainimg[0:30]
-        # _trainlabel = _trainlabel[0:30]
-        # with tf.name_scope("train") as scope:
-        train_det, train_loss, train_score = self.sess.run([self.det, self.loss, self.accr],
-                                              feed_dict={self.input: _trainimg, self.gt: _trainlabel,
-                                                          self.is_training: False})
-
-
-        _test_total = np.shape(_testimg)[0]
-        # _testimg = _testimg[0:30]
-        # _testlabel = _testlabel[0:30]
-        # _testlabel = _testlabel[:, self.stride_component, :]
-        test_det, test_loss, test_score = self.sess.run([self.det, self.loss,self.accr],
-                                                feed_dict={self.input: _testimg, self.gt: _testlabel,
-                                                            self.is_training: False})
 
         # Calculate loss for training set & test set
 
         train_feeds = {self.input: _trainimg, self.gt: _trainlabel, self.is_training: False}
-        train_loss, train_val, train_gt = self.sess.run([self.loss, self.det_full, self.gt_full ], feed_dict=train_feeds)
+        train_loss, train_val, train_gt, train_score = self.sess.run([self.loss, self.det_full, self.gt_full, self.accr],
+                                                                     feed_dict=train_feeds)
         test_feeds = {self.input: _testimg, self.gt: _testlabel, self.is_training: False}
-        test_loss, test_val, test_gt = self.sess.run([self.loss, self.det_full, self.gt_full ], feed_dict=test_feeds)
+        test_loss, test_val, test_gt, test_score = self.sess.run([self.loss, self.det_full, self.gt_full, self.accr],
+                                                     feed_dict=test_feeds)
         print("Epoch: [%04d/%04d, batch : %04d] train accuracy: %.9f, train loss: %.9f, test accuracy: %.9f, test loss: %.9f"
               % (_epoch + 1, total_epochs, _idx, train_score, train_loss, test_score, test_loss))
-        #
-        # print("training")
-        # print("gt_full : " , train_gt)
-        # print("det_full : " , train_det)
-        #
-        # print("testing")
-        # print("gt_full : ", test_gt)
-        # print("det_full : ", test_det)
+
 
 
 
