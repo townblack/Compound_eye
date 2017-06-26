@@ -4,9 +4,10 @@ import os
 
 
 class Visualize(object):
-    def __init__(self, gt, output, neighbor, savedir, epoch):
+    def __init__(self, gt, gtr, output, neighbor, savedir, epoch):
         # data : [batch, len_total]
         self.gt = gt
+        self.gtr = gtr
         self.output = output
         self.nei = neighbor
         self.savedir = savedir
@@ -72,11 +73,24 @@ class Visualize(object):
 
     def region(self, reg, idx):
         base = np.zeros([self.length, self.length])
+        count = np.zeros([self.length, self.length])
         for i in range(len(reg)):
             compo = self.nei[i]
             for l in compo:
-                base[idx[l][0], idx[l][1]] += reg[i]
-        return base
+                base[idx[l][0], idx[l][1]] = count[idx[l][0], idx[l][1]] * base[idx[l][0], idx[l][1]] + reg[i]
+                count[idx[l][0], idx[l][1]] += 1
+                base[idx[l][0], idx[l][1]] = base[idx[l][0], idx[l][1]]/count[idx[l][0], idx[l][1]]
+
+        classify = np.zeros([self.length, self.length])
+        for i in range(len(reg)):
+            compo = self.nei[i]
+            if reg[i] > 0.5:
+                for l in compo:
+                    classify[idx[l][0], idx[l][1]] = 1
+
+
+
+        return base, classify
 
 
 
@@ -86,12 +100,23 @@ class Visualize(object):
 
         for dt in range(5):
             cur_gt = self.gt[dt]
+            cur_gtr =self.gtr[dt]
             cur_output = self.output[dt]
-            a = plt.subplot(2, 5, dt + 1)
+            a = plt.subplot(4, 5, dt + 1)
+            plt.axis('off')
             gt, index = self.square(cur_gt)
             a.matshow(gt, cmap='gray')
-            b = plt.subplot(2, 5, dt + 5 + 1)
-            b.matshow(self.region(cur_output, index), cmap='gray')
+            ar = plt.subplot(4, 5, dt +5 + 1)
+            plt.axis('off')
+            gtr, _ = self.square(cur_gtr)
+            ar.matshow(gtr, cmap='gray')
+            ditb, clss = self.region(cur_output, index)
+            b = plt.subplot(4, 5, dt + 10 + 1)
+            plt.axis('off')
+            b.matshow(ditb, cmap='gray')
+            c = plt.subplot(4, 5, dt + 15 + 1)
+            plt.axis('off')
+            c.matshow(clss, cmap='gray')
 
         test_dir = os.path.join(self.savedir)
         test_fig = "train%04d" % (self.epoch + 1)

@@ -1,6 +1,6 @@
 import numpy as np
+from random import randint
 
+# a = False
 
-a = False
-b = 1.0
-print(b-a)
+print(randint(-3, 3))

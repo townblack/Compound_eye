@@ -53,15 +53,50 @@ level_list.append(cur_level)
 level_s.append(len(xyz))
 # print(level_s)
 l_max = l
-neighbor = [[1, 2, 0, 8, 3, 4, 5, 6, 7]]
+# neighbor = [[1, 2, 0, 8, 3, 4, 5, 6, 7]]
+#
+#
+# idx = 1
+# for j in range(1, len(level_s)-2):
+#     for k in range(level_s[j+1]-level_s[j]):
+#         upfloor = NearestNeighbors(n_neighbors=1).fit(level_list[j-1])
+#         myfloor = NearestNeighbors(n_neighbors=3).fit(level_list[j])
+#         downfloor = NearestNeighbors(n_neighbors=5).fit(level_list[j + 1])
+#         _, up = upfloor.kneighbors(xyz[idx])
+#         up = [level_s[j-1]+up[0,0]]
+#         _, my = myfloor.kneighbors(xyz[idx])
+#         my = np.sort([level_s[j]+my[0,0],level_s[j]+my[0,1], level_s[j]+my[0,2]])
+#         while(my[-1]-my[0] > 2 or my[-1]-my[0] == -1):
+#             tail = my[-1]
+#             my[2] = my[1]
+#             my[1] = my[0]
+#             my[0] = tail
+#
+#         _, down = downfloor.kneighbors(xyz[idx])
+#         down = np.sort([level_s[j+1]+down[0,0], level_s[j+1]+down[0,1], level_s[j+1]+down[0,2],
+#                 level_s[j+1]+down[0,3], level_s[j+1]+down[0,4]])
+#         while (down[-1] - down[0] > 4 or down[-1] - down[0] == -1):
+#             tail = down[-1]
+#             down[4] = down[3]
+#             down[3] = down[2]
+#             down[2] = down[1]
+#             down[1] = down[0]
+#             down[0] = tail
+#
+#         cur_neighbor = np.concatenate((up,my,down))
+#         neighbor.append(cur_neighbor)
+#         idx += 1
+
+neighbor = [np.array([1, 2, 0, 8, 3, 4, 5, 6, 7, 15, 16, 17, 18, 19, 20, 21])]
 
 
 idx = 1
-for j in range(1, len(level_s)-2):
+for j in range(1, len(level_s)-3):
     for k in range(level_s[j+1]-level_s[j]):
         upfloor = NearestNeighbors(n_neighbors=1).fit(level_list[j-1])
         myfloor = NearestNeighbors(n_neighbors=3).fit(level_list[j])
         downfloor = NearestNeighbors(n_neighbors=5).fit(level_list[j + 1])
+        ddownfloor = NearestNeighbors(n_neighbors=7).fit(level_list[j + 2])
         _, up = upfloor.kneighbors(xyz[idx])
         up = [level_s[j-1]+up[0,0]]
         _, my = myfloor.kneighbors(xyz[idx])
@@ -83,11 +118,26 @@ for j in range(1, len(level_s)-2):
             down[1] = down[0]
             down[0] = tail
 
-        cur_neighbor = np.concatenate((up,my,down))
+        _, ddown = ddownfloor.kneighbors(xyz[idx])
+        ddown = np.sort([level_s[j + 2] + ddown[0, 0], level_s[j + 2] + ddown[0, 1], level_s[j + 2] + ddown[0, 2],
+                        level_s[j + 2] + ddown[0, 3], level_s[j + 2] + ddown[0, 4], level_s[j + 2] + ddown[0, 5],
+                        level_s[j + 2] + ddown[0, 6]])
+        while (ddown[-1] - ddown[0] > 6 or ddown[-1] - ddown[0] == -1):
+            tail = ddown[-1]
+            ddown[6] = ddown[5]
+            ddown[5] = ddown[4]
+            ddown[4] = ddown[3]
+            ddown[3] = ddown[2]
+            ddown[2] = ddown[1]
+            ddown[1] = ddown[0]
+            ddown[0] = tail
+
+
+        cur_neighbor = np.concatenate((up,my,down,ddown))
         neighbor.append(cur_neighbor)
         idx += 1
 
-np.save(os.getcwd() + "/PASCAL_VOC_2012/NN_441_manual.npy", neighbor)
+np.save(os.getcwd() + "/PASCAL_VOC_2012/NN16_441_tri.npy", neighbor)
         # print(down)
 
 
