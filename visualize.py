@@ -4,10 +4,10 @@ import os
 
 
 class Visualize(object):
-    def __init__(self, gt, gtr, output, neighbor, savedir, epoch):
+    def __init__(self, gt, label, output, neighbor, savedir, epoch):
         # data : [batch, len_total]
         self.gt = gt
-        self.gtr = gtr
+        self.label = label
         self.output = output
         self.nei = neighbor
         self.savedir = savedir
@@ -92,6 +92,16 @@ class Visualize(object):
 
         return base, classify
 
+    def bincl(self, target):
+        binary = np.copy(target)
+        for i in range(np.shape(target)[0]):
+            for j in range(np.shape(target)[1]):
+                if target[i][j]>0.5:
+                    binary[i][j] = 1
+                else:
+                    binary[i][j] = 0
+
+        return binary
 
 
 
@@ -100,7 +110,7 @@ class Visualize(object):
 
         for dt in range(5):
             cur_gt = self.gt[dt]
-            cur_gtr =self.gtr[dt]
+            cur_label =self.label[dt]
             cur_output = self.output[dt]
             a = plt.subplot(4, 5, dt + 1)
             plt.axis('off')
@@ -108,8 +118,8 @@ class Visualize(object):
             a.matshow(gt, cmap='gray')
             ar = plt.subplot(4, 5, dt +5 + 1)
             plt.axis('off')
-            gtr, _ = self.square(cur_gtr)
-            ar.matshow(gtr, cmap='gray')
+            label, _ = self.square(cur_label)
+            ar.matshow(label, cmap='gray')
             ditb, clss = self.region(cur_output, index)
             b = plt.subplot(4, 5, dt + 10 + 1)
             plt.axis('off')

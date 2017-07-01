@@ -12,13 +12,13 @@ def lrelu(x, alpha=0.2, max_value=None):
     return tf.maximum(x, alpha*x)
 
 class DET(object):
-    def __init__(self, sess, image_size=10, image_dim=3, eye_num= 441):
+    def __init__(self, sess, image_size=10, image_dim=3, eye_num= 441, n_number=9):
 
         self.sess = sess
         self.image_size = image_size
         self.image_dim = image_dim
         self.eye_num = eye_num
-        self.neighbor = np.load(os.getcwd()+"/PASCAL_VOC_2012/NN_441_knn.npy")
+        self.neighbor = np.load(os.getcwd()+"/NN/NN%d_441_knn.npy" % (n_number))
         self.reg_num = np.shape(self.neighbor)[0]
         self.nei_num = np.shape(self.neighbor)[1]
         n_idx = []
@@ -29,6 +29,7 @@ class DET(object):
             n_idx.append(c_idx)
         self.n_idx = n_idx
         self.rand_num = 80
+        self.counter = tf.Variable(0, trainable=False)
         # self.batch_size = batch_size
         self.build_model()
 
@@ -61,7 +62,53 @@ class DET(object):
             self.loss_test = tf.divide(tf.nn.l2_loss(self.gt_full_test - self.det_full_test),
                                                         tf.to_float(tf.shape(self.det_full_test)[0]))
             # self.loss = tf.reduce_mean(tf.abs(self.gt_full - self.det_full))
-            self.loss_sum_train = tf.summary.scalar("loss_train", self.loss)
+            # self.loss_test = tf.reduce_mean(tf.abs(self.gt_full_test - self.det_full_test))
+
+            ########################
+            # New loss mx
+
+            # self.loss = tf.divide(tf.nn.l2_loss(self.gt_full - self.det_full) \
+            #             + tf.reduce_sum(tf.maximum(0., -(self.gt_full-0.5)*(self.det_full-0.5)))
+            #             , tf.to_float(tf.shape(self.gt_full)[0]))
+            # self.loss_test = tf.divide(tf.nn.l2_loss(self.gt_full_test - self.det_full_test) \
+            #                  + tf.reduce_sum(tf.maximum(0., -(self.gt_full_test-0.5)*(self.det_full_test-0.5)))
+            #                 , tf.to_float(tf.shape(self.gt_full_test)[0]))
+
+
+            ################################
+            # Regression + cross entropy
+            #################################
+            # gt_full_op = 1.-self.gt_full
+            # gt_full_2 = tf.concat([tf.reshape(self.gt_full,[-1,1]), tf.reshape(gt_full_op,[-1,1])], axis=1)
+            # det_full_op = 1. - self.det_full
+            # det_full_2 = tf.concat([tf.reshape(self.det_full,[-1,1]), tf.reshape(det_full_op,[-1,1])], axis=1)
+            #
+            # gt_full_test_op = 1. - self.gt_full_test
+            # gt_full_test_2 = tf.concat([tf.reshape(self.gt_full_test,[-1,1]), tf.reshape(gt_full_test_op,[-1,1])], axis=1)
+            # det_full_test_op = 1. - self.det_full_test
+            # det_full_test_2 = tf.concat([tf.reshape(self.det_full_test,[-1,1]), tf.reshape(det_full_test_op, [-1,1])], axis=1)
+            #
+            # self.loss = tf.nn.l2_loss(self.gt_full - tf.nn.sigmoid(self.det_full))\
+            #             + tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(labels=gt_full_2, logits=det_full_2))
+            # self.loss_test = tf.nn.l2_loss(self.gt_full_test - tf.nn.sigmoid(self.det_full_test)) \
+            #                  + tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(labels=gt_full_test_2, logits=det_full_test_2))
+
+
+            #########################################
+
+            ##########################################
+            # Chanho loss
+            # self.loss = tf.divide(tf.nn.l2_loss(self.gt_full - self.det_full) \
+            #                       + tf.reduce_sum(-(self.gt_full - 0.5) * self.det_full)
+            #                       , tf.to_float(tf.shape(self.gt_full)[0]))
+            # self.loss_test = tf.divide(tf.nn.l2_loss(self.gt_full_test - self.det_full_test) \
+            #                            + tf.reduce_sum(-(self.gt_full_test - 0.5) * self.det_full_test )
+            #                            , tf.to_float(tf.shape(self.gt_full_test)[0]))
+
+
+            #################################################
+
+            self.loss_sum_train = tf.summary.scalar("loss_train", self.loss_test)
             self.loss_sum_test = tf.summary.scalar("loss_test", self.loss_test)
         # self.corr = tf.equal(tf.arg_max(det_full,1), tf.arg_max(gt_full,1))
         self.corr = tf.equal(self.gt_full>0.5, self.det_full>0.5)
@@ -70,7 +117,7 @@ class DET(object):
         with tf.name_scope("accr") as scope:
             self.accr = tf.reduce_mean(tf.cast(self.corr, "float"))
             self.accr_t = tf.reduce_mean(tf.cast(self.corr_test, "float"))
-            self.accr_train = tf.summary.scalar("accr_train", self.accr)
+            self.accr_train = tf.summary.scalar("accr_train", self.accr_t)
             self.accr_test = tf.summary.scalar("accr_test", self.accr_t)
         self.vars = tf.trainable_variables()
         self.saver = tf.train.Saver()
@@ -133,8 +180,8 @@ class DET(object):
             region = tf.transpose(region, [2, 0, 1, 3])
             ### shape = [batch, rand_num, 9, 256]
             # region = tf.reduce_mean(region, axis=2)
-            region = tf.reshape(region, [-1, 3, 3, 256])
-            region = slim.conv2d(region, 256, [3, 3], stride=1, padding='VALID', activation_fn=tf.nn.relu,
+            region = tf.reshape(region, [-1, self.nei_num, 1, 256])
+            region = slim.conv2d(region, 256, [self.nei_num, 1], stride=1, padding='VALID', activation_fn=tf.nn.relu,
                               weights_initializer=conv_init_params, biases_initializer=bias_init_params,
                               normalizer_fn=slim.batch_norm, normalizer_params=bn_params,
                               scope='conv0')
@@ -163,12 +210,12 @@ class DET(object):
             region = tf.gather_nd(region, self.n_idx)
             region = tf.transpose(region, [2, 0, 1, 3])
             # shape = [batch, rand_num, 9, 256]
-            # region = tf.reduce_mean(region, axis=2)
-            region = tf.reshape(region, [-1, 3, 3, 256])
-            region = slim.conv2d(region, 256, [3, 3], stride=1, padding='VALID', activation_fn=tf.nn.relu,
-                              weights_initializer=conv_init_params, biases_initializer=bias_init_params,
-                              normalizer_fn=slim.batch_norm, normalizer_params=bn_params,
-                              scope='conv0')
+            region = tf.reduce_mean(region, axis=2)
+            # region = tf.reshape(region, [-1, self.nei_num, 1, 256])
+            # region = slim.conv2d(region, 256, [self.nei_num, 1], stride=1, padding='VALID', activation_fn=tf.nn.relu,
+            #                   weights_initializer=conv_init_params, biases_initializer=bias_init_params,
+            #                   normalizer_fn=slim.batch_norm, normalizer_params=bn_params,
+            #                   scope='conv0')
             # shape = [batch, rand_num, 256]
             _det = slim.fully_connected(tf.reshape(region, [-1, 256]), 1, activation_fn=tf.nn.sigmoid, scope='detect')
             _det = tf.reshape(_det, (tf.shape(_embed)[0], self.reg_num))
@@ -190,7 +237,7 @@ class DET(object):
         self.sum = tf.summary.merge_all()
         self.writer = tf.summary.FileWriter(config.checkpoint_dir, self.sess.graph)
 
-        counter = 1
+        # counter = 1
 
         load_dir = config.checkpoint_dir # + "/PASCAL_VOC_2012"
         if self.load(load_dir, config=config):
@@ -198,30 +245,72 @@ class DET(object):
         else:
             print(" [!] Load failed...")
 
-        testimg = np.load(cwd + '/PASCAL_VOC_2012/%d/test.npy' % (self.image_size))
-        testlabel = np.load(
-            cwd + '/PASCAL_VOC_2012/%d/seg_test_knn.npy' % (self.image_size)).astype(float)
-        ds_testlabel = np.load(cwd + '/PASCAL_VOC_2012/%d/gt_test.npy' % (self.image_size)).astype(
-            float)
+        testimg_loc = cwd + '/PASCAL_VOC_2012/%d/test_pre' % (self.image_size)
+        testimg = os.listdir(testimg_loc)
+        testimg.sort()
+        testlabel_loc = cwd + '/PASCAL_VOC_2012/%d/knn_test/%d' % (self.image_size, self.nei_num)
+        testlabel = os.listdir(testlabel_loc)
+        testlabel.sort()
+        testgt_loc = cwd + '/PASCAL_VOC_2012/%d/gt_test' % (self.image_size)
+        testgt = os.listdir(testgt_loc)
+        testgt.sort()
+        testgt = testgt[16:21]
+
+        ds_testimg = np.copy(testimg[16:21])  # for display, no shuffle
+        ds_testlabel = np.copy(testlabel[16:21])  # for display, no shuffle
+
 
         for epoch in range(config.epoch):
-            rot = randint(-3, 3)
-            flip = randint(0, 1)
-            if flip == 0:
-                name = 'train'
-            else:
-                name = 'flip'
-            # name = 'flip'
+            start_epoch = time.time()
+            dataset = 0#randint(0, 1)
+            if dataset == 0:
+                # rot = randint(-3, 3)
+                # flip = randint(0, 1)
+                # if flip == 0:
+                #     name = 'train'
+                # else:
+                #     name = 'flip'
+                # name = 'flip'
+                rot=0
+                name="train"
 
-            with tf.device('/cpu:1'):
-                trainimg = np.load(cwd + '/PASCAL_VOC_2012/%d/r%d/%s.npy' % (self.image_size, rot, name))
-                trainlabel = np.load(cwd + '/PASCAL_VOC_2012/%d/r%d/seg_%s_knn.npy' % (
-                self.image_size, rot, name)).astype(float)
-                ds_trainimg = np.copy(trainimg)  # for display, no shuffle
-                ds_trainlabelr = np.copy(trainlabel)  # for display, no shuffle
-                ds_trainlabel = np.load(
-                    cwd + '/PASCAL_VOC_2012/%d/r%d/gt_%s.npy' % (self.image_size, rot, name)).astype(
-                    float)  # for display, no shuffle
+                with tf.device('/cpu:1'):
+                    trainimg_loc = cwd + '/PASCAL_VOC_2012/%d/r%d/%s_pre' % (self.image_size, rot, name)
+                    trainimg = os.listdir(trainimg_loc)
+                    trainimg.sort()
+                    trainlabel_loc = cwd + '/PASCAL_VOC_2012/%d/r%d/knn/%s/%d' % (self.image_size, rot, name,self.nei_num)
+                    trainlabel = os.listdir(trainlabel_loc)
+                    trainlabel.sort()
+                    traingt_loc = cwd + '/PASCAL_VOC_2012/%d/r%d/gt_%s' % (self.image_size, rot, name)
+                    traingt = os.listdir(traingt_loc)
+                    traingt.sort()
+                    traingt = traingt[:5]
+
+                    ds_trainimg = np.copy(trainimg[:5])  # for display, no shuffle
+                    ds_trainlabel = np.copy(trainlabel[:5])  # for display, no shuffle
+            else:
+                flip = 0#randint(0, 1)
+                if flip == 0:
+                    name = 'img'
+                else:
+                    name = 'flip'
+
+                with tf.device('/cpu:1'):
+                    trainimg_loc = cwd + '/coco/%d/train/%s' % (self.image_size, name)
+                    trainimg = os.listdir(trainimg_loc)
+                    trainimg.sort()
+                    trainlabel_loc = cwd + '/coco/%d/train/knn_%s/%d' % (
+                    self.image_size, name, self.nei_num)
+                    trainlabel = os.listdir(trainlabel_loc)
+                    trainlabel.sort()
+                    traingt_loc = cwd + '/coco/%d/train/gt_%s' % (self.image_size, name)
+                    traingt = os.listdir(traingt_loc)
+                    traingt.sort()
+                    traingt = traingt[:5]
+
+                    ds_trainimg = np.copy(trainimg[:5])  # for display, no shuffle
+                    ds_trainlabel = np.copy(trainlabel[:5])  # for display, no shuffle
+
 
             np.random.seed(epoch)
             np.random.shuffle(trainimg)
@@ -232,40 +321,76 @@ class DET(object):
 
 
             for idx in range(0, batch_idxs):
-                batch_files = trainimg[range(idx * config.batch_size, (idx + 1) * config.batch_size)]
-                batch_gt = trainlabel[range(idx * config.batch_size, (idx + 1) * config.batch_size)]
-                testsize = 24
-                didx = np.random.randint(len(testimg), size=testsize)
-                test_batch_files = testimg[didx]
-                test_batch_gt = testlabel[didx]
+                batch_files = []
+                batch_gt = []
+                for b in range(config.batch_size):
+                    batch_files.append(np.load(trainimg_loc + '/' + trainimg[idx * config.batch_size + b]))
+                    batch_gt.append(np.load(trainlabel_loc + '/' + trainlabel[idx * config.batch_size + b]).astype(float))
 
                 # Update network
                 self.sess.run(optim, feed_dict={self.input: batch_files, self.gt: batch_gt,
                                                 self.is_training: True})
-                if np.mod(idx, 10) ==1:
-                    self.display(epoch, config.epoch, batch_files, batch_gt, test_batch_files, test_batch_gt, idx, counter)
-                    counter =counter +1
 
 
-            # Visualization
-            det_vi_train = self.sess.run(self.det_test, feed_dict={self.input:ds_trainimg[0:5], self.is_training: False})
-            save_train = config.checkpoint_dir+"/train"
-            if not os.path.exists(save_train):
-                os.makedirs(save_train)
-            vi_train = Visualize(ds_trainlabel[:5], ds_trainlabelr[:5], det_vi_train, self.neighbor, save_train, epoch)
-            vi_train.plot()
+            testsize = 24
+            np.random.seed(epoch)
+            np.random.shuffle(testimg)
+            np.random.seed(epoch)
+            np.random.shuffle(testlabel)
+            batch_files = []
+            batch_label = []
+            test_batch_files = []
+            test_batch_label = []
+            for b in range(testsize):
+                batch_files.append(np.load(trainimg_loc + '/' + trainimg[b]))
+                batch_label.append(np.load(trainlabel_loc + '/' + trainlabel[b]).astype(float))
+                test_batch_files.append(np.load(testimg_loc + '/' + testimg[b]))
+                test_batch_label.append(np.load(testlabel_loc + '/' + testlabel[b]).astype(float))
+            self.display(epoch, config.epoch, batch_files, batch_label, test_batch_files,
+                         test_batch_label, 1, self.counter)
+            self.counter = self.counter + 1
+            epoch_time = time.time() - start_epoch
+            print("Epoch run time : %.9f"%(epoch_time))
 
 
-            det_vi_test = self.sess.run(self.det_test,feed_dict={self.input: testimg[16:21], self.is_training: False})
-            save_test = config.checkpoint_dir + "/test"
-            if not os.path.exists(save_test):
-                os.makedirs(save_test)
-            vi_test = Visualize(ds_testlabel[16:21], testlabel[16:21], det_vi_test, self.neighbor, save_test, epoch)
-            vi_test.plot()
 
 
-            if np.mod(epoch, 50) == 1:
+            if np.mod(epoch, 10) == 1:
+                # Visualization
+                train_piece = []
+                train_piece_label = []
+                train_piece_gt = []
+                test_piece = []
+                test_piece_label = []
+                test_piece_gt = []
+                for b in range(5):
+                    train_piece.append(np.load(trainimg_loc + '/' + ds_trainimg[b]))
+                    train_piece_label.append(np.load(trainlabel_loc + '/' + ds_trainlabel[b]).astype(float))
+                    train_piece_gt.append(np.load(traingt_loc + '/' + traingt[b]).astype(float))
+                    test_piece.append(np.load(testimg_loc + '/' + ds_testimg[b]))
+                    test_piece_label.append(np.load(testlabel_loc + '/' + ds_testlabel[b]).astype(float))
+                    test_piece_gt.append(np.load(testgt_loc + '/' + testgt[b]).astype(float))
+                det_vi_train = self.sess.run(self.det_test,
+                                             feed_dict={self.input: train_piece, self.is_training: False})
+                save_train = config.checkpoint_dir + "/train"
+                if not os.path.exists(save_train):
+                    os.makedirs(save_train)
+                vi_train = Visualize(train_piece_gt, train_piece_label, det_vi_train, self.neighbor, save_train,
+                                     epoch)
+                vi_train.plot()
+
+                det_vi_test = self.sess.run(self.det_test,
+                                            feed_dict={self.input: test_piece, self.is_training: False})
+                save_test = config.checkpoint_dir + "/test"
+                if not os.path.exists(save_test):
+                    os.makedirs(save_test)
+                vi_test = Visualize(test_piece_gt, test_piece_label, det_vi_test, self.neighbor, save_test, epoch)
+                vi_test.plot()
+
+
+
                 self.save(config.checkpoint_dir, epoch, config)
+
 
 
 
@@ -277,7 +402,7 @@ class DET(object):
 
         train_feeds = {self.input: _trainimg, self.gt: _trainlabel, self.is_training: False}
         train_loss, train_val, train_gt, train_score, train_tbloss, train_tbaccr \
-            = self.sess.run([self.loss, self.det_full, self.gt_full, self.accr, self.loss_sum_train, self.accr_train],feed_dict=train_feeds)
+            = self.sess.run([self.loss_test, self.det_full_test, self.gt_full_test, self.accr_t, self.loss_sum_train, self.accr_train],feed_dict=train_feeds)
         test_feeds = {self.input: _testimg, self.gt: _testlabel, self.is_training: False}
 
         start_time = time.time()
@@ -285,13 +410,15 @@ class DET(object):
             = self.sess.run([self.loss_test, self.det_full_test, self.gt_full_test, self.accr_t, self.loss_sum_test, self.accr_test],
                                                      feed_dict=test_feeds)
         run_time = time.time() - start_time
-        print("Epoch: [%04d/%04d, batch : %04d] train accuracy: %.9f, train loss: %.9f, test accuracy: %.9f, test loss: %.9f, test running time: %.9f"
+
+        print("Epoch: [%04d/%04d, batch : %04d] train accuracy: %.9f, train loss: %.9f, test accuracy: %.9f, "
+              "test loss: %.9f, test running time: %.9f"
               % (_epoch + 1, total_epochs, _idx, train_score, train_loss, test_score, test_loss, run_time))
 
-        self.writer.add_summary(train_tbloss, tb_c)
-        self.writer.add_summary(train_tbaccr, tb_c)
-        self.writer.add_summary(test_tbloss, tb_c)
-        self.writer.add_summary(test_tbaccr, tb_c)
+        self.writer.add_summary(train_tbloss, self.sess.run(tb_c))
+        self.writer.add_summary(train_tbaccr, self.sess.run(tb_c))
+        self.writer.add_summary(test_tbloss, self.sess.run(tb_c))
+        self.writer.add_summary(test_tbaccr, self.sess.run(tb_c))
 
 
 
