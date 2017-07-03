@@ -151,7 +151,7 @@ class DET(object):
 
         # full batch -> batch, 441
 
-        _embed_comp = tf.reshape(_embed, (-1, self.eye_num, 1, 256))
+        _embed_comp = tf.reshape(_embed, (-1, self.eye_num, 256))
 
         return _embed_comp
 
@@ -166,19 +166,25 @@ class DET(object):
                      'param_initializers': bn_init_params, 'updates_collections': None}
 
         # Choose random place
-        randsel = np.random.choice(19*19, self.rand_num, replace=False)
+        randsel = np.random.choice(21*21, self.rand_num, replace=False)
         np.sort(randsel)
-        selneig = np.take(self.n_idx,randsel, axis=0)
-        for o in range(self.rand_num):
-            for n in range(self.nei_num):
-                selneig[o,n,0] = o
+        rand_reg = tf.reshape(tf.gather(self.neighbor, randsel), [-1])
+        # selneig = np.take(self.n_idx,randsel, axis=0)
+        # for o in range(self.rand_num):
+        #     for n in range(self.nei_num):
+        #         selneig[o,n,0] = o
 
         with tf.variable_scope("detector") :
-            region = tf.transpose(_embed, [2, 1, 0, 3])
-            region = tf.tile(region, [self.rand_num, 1, 1, 1])
-            region = tf.gather_nd(region, selneig)
-            region = tf.transpose(region, [2, 0, 1, 3])
+            region = tf.transpose(_embed, [1, 0, 2])
+            region = tf.transpose(tf.gather(region, rand_reg), [1,0,2])
+            region = tf.reshape(region, [-1, self.rand_num, self.nei_num, 256])
+            # region = tf.transpose(_embed, [2, 1, 0, 3])
+            # region = tf.tile(region, [self.rand_num, 1, 1, 1])
+            # region = tf.gather_nd(region, selneig)
+            # region = tf.transpose(region, [2, 0, 1, 3])
+
             ### shape = [batch, rand_num, 9, 256]
+
             # region = tf.reduce_mean(region, axis=2)
             region = tf.reshape(region, [-1, self.nei_num, 1, 256])
             region = slim.conv2d(region, 256, [self.nei_num, 1], stride=1, padding='VALID', activation_fn=tf.nn.relu,
@@ -205,17 +211,20 @@ class DET(object):
 
         with tf.variable_scope("detector") as scope:
             scope.reuse_variables()
-            region = tf.transpose(_embed, [2, 1, 0, 3])
-            region = tf.tile(region, [self.reg_num, 1, 1, 1])
-            region = tf.gather_nd(region, self.n_idx)
-            region = tf.transpose(region, [2, 0, 1, 3])
+            region = tf.transpose(_embed, [1, 0, 2])
+            region = tf.transpose(tf.gather(region, tf.reshape(self.neighbor, [-1])), [1, 0, 2])
+            region = tf.reshape(region, [-1, self.reg_num, self.nei_num, 256])
+            # region = tf.transpose(_embed, [2, 1, 0, 3])
+            # region = tf.tile(region, [self.reg_num, 1, 1, 1])
+            # region = tf.gather_nd(region, self.n_idx)
+            # region = tf.transpose(region, [2, 0, 1, 3])
             # shape = [batch, rand_num, 9, 256]
-            region = tf.reduce_mean(region, axis=2)
-            # region = tf.reshape(region, [-1, self.nei_num, 1, 256])
-            # region = slim.conv2d(region, 256, [self.nei_num, 1], stride=1, padding='VALID', activation_fn=tf.nn.relu,
-            #                   weights_initializer=conv_init_params, biases_initializer=bias_init_params,
-            #                   normalizer_fn=slim.batch_norm, normalizer_params=bn_params,
-            #                   scope='conv0')
+            # region = tf.reduce_mean(region, axis=2)
+            region = tf.reshape(region, [-1, self.nei_num, 1, 256])
+            region = slim.conv2d(region, 256, [self.nei_num, 1], stride=1, padding='VALID', activation_fn=tf.nn.relu,
+                              weights_initializer=conv_init_params, biases_initializer=bias_init_params,
+                              normalizer_fn=slim.batch_norm, normalizer_params=bn_params,
+                              scope='conv0')
             # shape = [batch, rand_num, 256]
             _det = slim.fully_connected(tf.reshape(region, [-1, 256]), 1, activation_fn=tf.nn.sigmoid, scope='detect')
             _det = tf.reshape(_det, (tf.shape(_embed)[0], self.reg_num))
@@ -245,13 +254,13 @@ class DET(object):
         else:
             print(" [!] Load failed...")
 
-        testimg_loc = cwd + '/PASCAL_VOC_2012/%d/test_pre' % (self.image_size)
+        testimg_loc = cwd + '/coco/%d/test/img_pre' % (self.image_size)
         testimg = os.listdir(testimg_loc)
         testimg.sort()
-        testlabel_loc = cwd + '/PASCAL_VOC_2012/%d/knn_test/%d' % (self.image_size, self.nei_num)
+        testlabel_loc = cwd + '/coco/%d/test/knn_img/%d' % (self.image_size, self.nei_num)
         testlabel = os.listdir(testlabel_loc)
         testlabel.sort()
-        testgt_loc = cwd + '/PASCAL_VOC_2012/%d/gt_test' % (self.image_size)
+        testgt_loc = cwd + '/coco/%d/test/gt_img' % (self.image_size)
         testgt = os.listdir(testgt_loc)
         testgt.sort()
         testgt = testgt[16:21]
@@ -262,7 +271,7 @@ class DET(object):
 
         for epoch in range(config.epoch):
             start_epoch = time.time()
-            dataset = 0#randint(0, 1)
+            dataset = 1#randint(0, 1)
             if dataset == 0:
                 # rot = randint(-3, 3)
                 # flip = randint(0, 1)
@@ -296,7 +305,7 @@ class DET(object):
                     name = 'flip'
 
                 with tf.device('/cpu:1'):
-                    trainimg_loc = cwd + '/coco/%d/train/%s' % (self.image_size, name)
+                    trainimg_loc = cwd + '/coco/%d/train/%s_pre' % (self.image_size, name)
                     trainimg = os.listdir(trainimg_loc)
                     trainimg.sort()
                     trainlabel_loc = cwd + '/coco/%d/train/knn_%s/%d' % (
@@ -319,20 +328,20 @@ class DET(object):
 
             batch_idxs = len(trainimg) // config.batch_size
 
-
-            for idx in range(0, batch_idxs):
-                batch_files = []
-                batch_gt = []
-                for b in range(config.batch_size):
-                    batch_files.append(np.load(trainimg_loc + '/' + trainimg[idx * config.batch_size + b]))
-                    batch_gt.append(np.load(trainlabel_loc + '/' + trainlabel[idx * config.batch_size + b]).astype(float))
+            with tf.device('/cpu:1'):
+                for idx in range(0, batch_idxs):
+                    batch_files = []
+                    batch_gt = []
+                    for b in range(config.batch_size):
+                        batch_files.append(np.load(trainimg_loc + '/' + trainimg[idx * config.batch_size + b]))
+                        batch_gt.append(np.load(trainlabel_loc + '/' + trainlabel[idx * config.batch_size + b]).astype(float))
 
                 # Update network
                 self.sess.run(optim, feed_dict={self.input: batch_files, self.gt: batch_gt,
                                                 self.is_training: True})
 
 
-            testsize = 24
+            testsize = 64
             np.random.seed(epoch)
             np.random.shuffle(testimg)
             np.random.seed(epoch)
@@ -341,11 +350,12 @@ class DET(object):
             batch_label = []
             test_batch_files = []
             test_batch_label = []
-            for b in range(testsize):
-                batch_files.append(np.load(trainimg_loc + '/' + trainimg[b]))
-                batch_label.append(np.load(trainlabel_loc + '/' + trainlabel[b]).astype(float))
-                test_batch_files.append(np.load(testimg_loc + '/' + testimg[b]))
-                test_batch_label.append(np.load(testlabel_loc + '/' + testlabel[b]).astype(float))
+            with tf.device('/cpu:1'):
+                for b in range(testsize):
+                    batch_files.append(np.load(trainimg_loc + '/' + trainimg[b]))
+                    batch_label.append(np.load(trainlabel_loc + '/' + trainlabel[b]).astype(float))
+                    test_batch_files.append(np.load(testimg_loc + '/' + testimg[b]))
+                    test_batch_label.append(np.load(testlabel_loc + '/' + testlabel[b]).astype(float))
             self.display(epoch, config.epoch, batch_files, batch_label, test_batch_files,
                          test_batch_label, 1, self.counter)
             self.counter = self.counter + 1
